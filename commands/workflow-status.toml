@@ -1,0 +1,14 @@
+name = "workflow-status"
+description = "List recent executions and check for failures."
+
+prompt = """
+List recent executions using n8n_list_executions.
+If workflow_id is provided, filter by it.
+If status is provided, filter by it (options: waiting, running, success, error, canceled).
+Summarize the results and highlight any failures.
+"""
+
+[parameters]
+workflow_id = { type = "string", description = "Filter by workflow ID", required = false }
+status = { type = "string", description = "Filter by status: waiting, running, success, error, canceled", required = false }
+limit = { type = "number", description = "Max results to show (default: 20)", default = 20 }

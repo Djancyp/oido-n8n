@@ -1,0 +1,12 @@
+name = "workflow-run"
+description = "Execute an n8n workflow by ID."
+
+prompt = """
+Execute the n8n workflow with id={{id}} using the n8n_execute_workflow tool.
+If data is provided, pass it as input data.
+Report back the execution ID.
+"""
+
+[parameters]
+id = { type = "string", description = "Workflow ID to execute", required = true }
+data = { type = "string", description = "Optional input data as JSON string", required = false }

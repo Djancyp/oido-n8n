@@ -1,0 +1,32 @@
+{
+  "name": "oido-n8n",
+  "version": "1.0.0",
+  "description": "Manage n8n workflows, executions, credentials, and webhooks via MCP.",
+	"runtime": "make build",
+  "mcpServers": {
+    "oido-n8n": {
+      "command": "${extensionPath}/oido-n8n-mcp",
+      "args": [],
+      "env": {
+        "N8N_API_URL": "${N8N_API_URL}",
+        "N8N_API_KEY": "${N8N_API_KEY}"
+      }
+    }
+  },
+  "contextFileName": "OIDO.md",
+  "excludeTools": [],
+  "settings": [
+    {
+      "name": "N8N_API_URL",
+      "description": "Base URL of your n8n instance (e.g. http://localhost:5678)",
+      "defaultValue": "http://localhost:5678",
+      "type": "string"
+    },
+    {
+      "name": "N8N_API_KEY",
+      "description": "n8n API key from Settings → API → Create an API key",
+      "defaultValue": "",
+      "type": "string"
+    }
+  ]
+}

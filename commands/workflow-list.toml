@@ -1,0 +1,11 @@
+name = "workflow-list"
+description = "List all n8n workflows and their status."
+
+prompt = """
+List all n8n workflows using the n8n_list_workflows tool.
+Display them in a table showing ID, active status, last updated, and name.
+If active parameter is provided, filter by it.
+"""
+
+[parameters]
+active = { type = "boolean", description = "Filter by active status (true/false)", required = false }

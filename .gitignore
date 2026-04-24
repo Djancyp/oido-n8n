@@ -1,0 +1,4 @@
+*.zip
+*-mcp
+dist/
+oido-n8n
