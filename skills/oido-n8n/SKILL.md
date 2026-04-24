@@ -44,6 +44,40 @@ One skill covering all n8n domains. Jump to the relevant section.
 n8n_validate_workflow → n8n_create_workflow → n8n_activate_workflow
 ```
 
+**Workflow JSON format** (nodes + connections only required):
+```json
+{
+  "nodes": [
+    {
+      "id": "ManualTrigger",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [240, 300],
+      "parameters": {}
+    },
+    {
+      "id": "HTTP Request",
+      "name": "Fetch Data",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [460, 300],
+      "parameters": { "url": "https://api.example.com/data", "method": "GET" }
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [[{ "node": "Fetch Data", "type": "main", "index": 0 }]]
+    }
+  }
+}
+```
+**Key rules:**
+- Connection keys use node `name` (not `id`)
+- Each node needs: `id`, `name`, `type`, `typeVersion`, `position`, `parameters`
+- Top-level `name` is optional — n8n auto-assigns one
+- Last node in chain has no entry in `connections`
+
 **Updating a workflow:**
 ```
 n8n_get_workflow → [edit] → n8n_validate_workflow → n8n_update_workflow

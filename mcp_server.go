@@ -924,10 +924,10 @@ func (h *MCPHandler) HandleValidateWorkflow(_ context.Context, _ *mcp.CallToolRe
 
 	var errs []string
 
-	// Required top-level fields
+	// Top-level field checks
 	nameRaw, hasName := wf["name"]
 	if !hasName || string(nameRaw) == `""` || string(nameRaw) == "null" {
-		errs = append(errs, "ERROR: missing required field 'name'")
+		errs = append(errs, "WARN: no 'name' field — n8n will auto-assign one")
 	}
 	if _, ok := wf["nodes"]; !ok {
 		errs = append(errs, "ERROR: missing required field 'nodes'")
@@ -945,7 +945,7 @@ func (h *MCPHandler) HandleValidateWorkflow(_ context.Context, _ *mcp.CallToolRe
 			seenIDs := map[string]bool{}
 			for i, node := range nodes {
 				prefix := fmt.Sprintf("nodes[%d]", i)
-				for _, req := range []string{"id", "type", "position", "parameters"} {
+				for _, req := range []string{"id", "name", "type", "typeVersion", "position", "parameters"} {
 					if _, ok := node[req]; !ok {
 						errs = append(errs, fmt.Sprintf("ERROR: %s missing required field '%s'", prefix, req))
 					}
@@ -1004,8 +1004,24 @@ func RunMCPServer() {
 	}, handler.HandleGetWorkflow)
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "n8n_create_workflow",
-		Description: "Create a new workflow from a complete JSON definition. Run n8n_validate_workflow on the JSON first to catch structural errors before sending. Returns the new workflow ID.",
+		Name: "n8n_create_workflow",
+		Description: `Create a new workflow from a JSON definition. Run n8n_validate_workflow first. Minimal required format:
+{
+  "nodes": [
+    {
+      "id": "ManualTrigger",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [240, 300],
+      "parameters": {}
+    }
+  ],
+  "connections": {
+    "Manual Trigger": { "main": [[{ "node": "Next Node Name", "type": "main", "index": 0 }]] }
+  }
+}
+Connection keys use node "name" (not "id"). "name" at top level is optional — n8n auto-assigns one.`,
 	}, handler.HandleCreateWorkflow)
 
 	mcp.AddTool(server, &mcp.Tool{
@@ -1146,6 +1162,32 @@ func RunMCPServer() {
 		Name:        "n8n_trigger_webhook",
 		Description: "Trigger a workflow directly via its webhook path without needing an API key. The workflow must have a Webhook node with the matching path. Only works if the webhook auth mode is set to 'none' in n8n.",
 	}, handler.HandleTriggerWebhook)
+
+	// Projects
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "n8n_list_projects",
+		Description: "List all projects you have access to, with ID, name, and type. Supports pagination (limit/cursor).",
+	}, handler.HandleListProjects)
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "n8n_get_project",
+		Description: "Get metadata for a specific project by ID. Use n8n_list_projects to find the ID first.",
+	}, handler.HandleGetProject)
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "n8n_create_project",
+		Description: "Create a new project. Type: 'team' (standard, default) or 'enterprise'. Projects group workflows and credentials by team.",
+	}, handler.HandleCreateProject)
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "n8n_update_project",
+		Description: "Rename an existing project. Currently the only supported update operation.",
+	}, handler.HandleUpdateProject)
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "n8n_delete_project",
+		Description: "Permanently delete a project by ID. Use n8n_list_projects to confirm the ID first.",
+	}, handler.HandleDeleteProject)
 
 	// Variables
 	mcp.AddTool(server, &mcp.Tool{
