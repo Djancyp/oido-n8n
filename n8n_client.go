@@ -74,6 +74,23 @@ type Tag struct {
 	Name string `json:"name"`
 }
 
+type User struct {
+	ID        string `json:"id"`
+	Email     string `json:"email"`
+	FirstName string `json:"firstName,omitempty"`
+	LastName  string `json:"lastName,omitempty"`
+	Role      string `json:"role,omitempty"`
+	CreatedAt string `json:"createdAt,omitempty"`
+	UpdatedAt string `json:"updatedAt,omitempty"`
+}
+
+type CreateUserRequest struct {
+	Email     string `json:"email"`
+	Role      string `json:"role,omitempty"`
+	FirstName string `json:"firstName,omitempty"`
+	LastName  string `json:"lastName,omitempty"`
+}
+
 type ListResponse[T any] struct {
 	Data       []T    `json:"data"`
 	NextCursor string `json:"nextCursor,omitempty"`
@@ -155,13 +172,16 @@ func (c *N8nClient) doWebhook(baseURL, path, method string, body interface{}) ([
 
 // --- Workflows ---
 
-func (c *N8nClient) ListWorkflows(active *bool, tags []string, limit int, cursor string) (*ListResponse[Workflow], error) {
+func (c *N8nClient) ListWorkflows(active *bool, tags []string, name string, limit int, cursor string) (*ListResponse[Workflow], error) {
 	params := url.Values{}
 	if active != nil {
 		params.Set("active", strconv.FormatBool(*active))
 	}
 	for _, t := range tags {
 		params.Add("tags", t)
+	}
+	if name != "" {
+		params.Set("name", name)
 	}
 	if limit > 0 {
 		params.Set("limit", strconv.Itoa(limit))
@@ -215,11 +235,38 @@ func (c *N8nClient) UpdateWorkflow(id, workflowJSON string) (*Workflow, error) {
 		return nil, fmt.Errorf("invalid workflow JSON: %w", err)
 	}
 
-	data, _, err := c.do("PATCH", "/workflows/"+id, body)
+	data, _, err := c.do("PUT", "/workflows/"+id, body)
 	if err != nil {
 		return nil, err
 	}
 
+	var result Workflow
+	return &result, json.Unmarshal(data, &result)
+}
+
+func (c *N8nClient) UpdatePartialWorkflow(id string, patches map[string]json.RawMessage) (*Workflow, error) {
+	existing, err := c.GetWorkflow(id)
+	if err != nil {
+		return nil, fmt.Errorf("fetch workflow: %w", err)
+	}
+
+	// Build a map from the existing workflow, then apply patches
+	raw, err := json.Marshal(existing)
+	if err != nil {
+		return nil, fmt.Errorf("marshal workflow: %w", err)
+	}
+	var body map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &body); err != nil {
+		return nil, fmt.Errorf("unmarshal workflow: %w", err)
+	}
+	for k, v := range patches {
+		body[k] = v
+	}
+
+	data, _, err := c.do("PATCH", "/workflows/"+id, body)
+	if err != nil {
+		return nil, err
+	}
 	var result Workflow
 	return &result, json.Unmarshal(data, &result)
 }
@@ -270,7 +317,7 @@ func (c *N8nClient) ExecuteWorkflow(id string, dataJSON string) (*ExecuteRespons
 
 // --- Executions ---
 
-func (c *N8nClient) ListExecutions(workflowID, status string, limit int, cursor string) (*ListResponse[Execution], error) {
+func (c *N8nClient) ListExecutions(workflowID, status string, limit int, cursor string, includeData bool) (*ListResponse[Execution], error) {
 	params := url.Values{}
 	if workflowID != "" {
 		params.Set("workflowId", workflowID)
@@ -283,6 +330,9 @@ func (c *N8nClient) ListExecutions(workflowID, status string, limit int, cursor 
 	}
 	if cursor != "" {
 		params.Set("cursor", cursor)
+	}
+	if includeData {
+		params.Set("includeData", "true")
 	}
 
 	path := "/executions"
@@ -299,8 +349,12 @@ func (c *N8nClient) ListExecutions(workflowID, status string, limit int, cursor 
 	return &result, json.Unmarshal(data, &result)
 }
 
-func (c *N8nClient) GetExecution(id string) (*Execution, error) {
-	data, _, err := c.do("GET", "/executions/"+id, nil)
+func (c *N8nClient) GetExecution(id string, includeData bool) (*Execution, error) {
+	path := "/executions/" + id
+	if includeData {
+		path += "?includeData=true"
+	}
+	data, _, err := c.do("GET", path, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -319,20 +373,95 @@ func (c *N8nClient) StopExecution(id string) error {
 	return err
 }
 
+func (c *N8nClient) StopExecutions(workflowID string) (json.RawMessage, error) {
+	body := map[string]string{}
+	if workflowID != "" {
+		body["workflowId"] = workflowID
+	}
+	data, _, err := c.do("POST", "/executions/stop", body)
+	if err != nil {
+		return nil, err
+	}
+	return data, nil
+}
+
+func (c *N8nClient) RetryExecution(id string) (json.RawMessage, error) {
+	data, _, err := c.do("POST", "/executions/"+id+"/retry", nil)
+	if err != nil {
+		return nil, err
+	}
+	return data, nil
+}
+
+func (c *N8nClient) ListExecutionTags(id string) ([]Tag, error) {
+	data, _, err := c.do("GET", "/executions/"+id+"/tags", nil)
+	if err != nil {
+		return nil, err
+	}
+	var result []Tag
+	return result, json.Unmarshal(data, &result)
+}
+
+func (c *N8nClient) UpdateExecutionTags(id string, tagIDs []string) ([]Tag, error) {
+	body := make([]map[string]string, len(tagIDs))
+	for i, tid := range tagIDs {
+		body[i] = map[string]string{"id": tid}
+	}
+	data, _, err := c.do("PUT", "/executions/"+id+"/tags", body)
+	if err != nil {
+		return nil, err
+	}
+	var result []Tag
+	return result, json.Unmarshal(data, &result)
+}
+
 // --- Credentials ---
 
-func (c *N8nClient) ListCredentials(limit int) (*ListResponse[Credential], error) {
-	path := "/credentials"
+func (c *N8nClient) ListCredentials(limit int, credentialID, credType string) (*ListResponse[Credential], error) {
+	params := url.Values{}
 	if limit > 0 {
-		path += "?limit=" + strconv.Itoa(limit)
+		params.Set("limit", strconv.Itoa(limit))
 	}
-
+	if credentialID != "" {
+		params.Set("credentialId", credentialID)
+	}
+	if credType != "" {
+		params.Set("type", credType)
+	}
+	path := "/credentials"
+	if len(params) > 0 {
+		path += "?" + params.Encode()
+	}
 	data, _, err := c.do("GET", path, nil)
 	if err != nil {
 		return nil, err
 	}
-
 	var result ListResponse[Credential]
+	return &result, json.Unmarshal(data, &result)
+}
+
+func (c *N8nClient) GetCredential(id string) (*Credential, error) {
+	data, _, err := c.do("GET", "/credentials/"+id, nil)
+	if err != nil {
+		return nil, err
+	}
+	var result Credential
+	return &result, json.Unmarshal(data, &result)
+}
+
+func (c *N8nClient) UpdateCredential(id, name, credType, credDataJSON string) (*Credential, error) {
+	var credData json.RawMessage
+	if credDataJSON != "" {
+		if err := json.Unmarshal([]byte(credDataJSON), &credData); err != nil {
+			return nil, fmt.Errorf("invalid credential data JSON: %w", err)
+		}
+	}
+	body := map[string]interface{}{"name": name, "type": credType, "data": credData}
+	data, _, err := c.do("PUT", "/credentials/"+id, body)
+	if err != nil {
+		return nil, err
+	}
+	var result Credential
 	return &result, json.Unmarshal(data, &result)
 }
 
@@ -372,21 +501,258 @@ func (c *N8nClient) GetCredentialSchema(credentialType string) (json.RawMessage,
 	return data, nil
 }
 
-// --- Tags ---
+// --- Projects ---
 
-func (c *N8nClient) ListTags(limit int) (*ListResponse[Tag], error) {
-	path := "/tags"
+type Project struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	Type      string `json:"type"`
+	CreatedAt string `json:"createdAt,omitempty"`
+	UpdatedAt string `json:"updatedAt,omitempty"`
+}
+
+func (c *N8nClient) ListProjects(limit int, cursor string) (*ListResponse[Project], error) {
+	params := url.Values{}
 	if limit > 0 {
-		path += "?limit=" + strconv.Itoa(limit)
+		params.Set("limit", strconv.Itoa(limit))
 	}
-
+	if cursor != "" {
+		params.Set("cursor", cursor)
+	}
+	path := "/projects"
+	if len(params) > 0 {
+		path += "?" + params.Encode()
+	}
 	data, _, err := c.do("GET", path, nil)
 	if err != nil {
 		return nil, err
 	}
+	var result ListResponse[Project]
+	return &result, json.Unmarshal(data, &result)
+}
 
+func (c *N8nClient) GetProject(id string) (*Project, error) {
+	data, _, err := c.do("GET", "/projects/"+id, nil)
+	if err != nil {
+		return nil, err
+	}
+	var result Project
+	return &result, json.Unmarshal(data, &result)
+}
+
+func (c *N8nClient) CreateProject(name, projectType string) (*Project, error) {
+	body := map[string]string{"name": name, "type": projectType}
+	data, _, err := c.do("POST", "/projects", body)
+	if err != nil {
+		return nil, err
+	}
+	var result Project
+	return &result, json.Unmarshal(data, &result)
+}
+
+func (c *N8nClient) UpdateProject(id, name string) (*Project, error) {
+	body := map[string]string{"name": name}
+	data, _, err := c.do("PUT", "/projects/"+id, body)
+	if err != nil {
+		return nil, err
+	}
+	var result Project
+	return &result, json.Unmarshal(data, &result)
+}
+
+func (c *N8nClient) DeleteProject(id string) error {
+	_, _, err := c.do("DELETE", "/projects/"+id, nil)
+	return err
+}
+
+// --- Variables ---
+
+type Variable struct {
+	ID    string `json:"id"`
+	Key   string `json:"key"`
+	Value string `json:"value"`
+}
+
+func (c *N8nClient) ListVariables(limit int, cursor string) (*ListResponse[Variable], error) {
+	params := url.Values{}
+	if limit > 0 {
+		params.Set("limit", strconv.Itoa(limit))
+	}
+	if cursor != "" {
+		params.Set("cursor", cursor)
+	}
+	path := "/variables"
+	if len(params) > 0 {
+		path += "?" + params.Encode()
+	}
+	data, _, err := c.do("GET", path, nil)
+	if err != nil {
+		return nil, err
+	}
+	var result ListResponse[Variable]
+	return &result, json.Unmarshal(data, &result)
+}
+
+func (c *N8nClient) GetVariable(id string) (*Variable, error) {
+	data, _, err := c.do("GET", "/variables/"+id, nil)
+	if err != nil {
+		return nil, err
+	}
+	var result Variable
+	return &result, json.Unmarshal(data, &result)
+}
+
+func (c *N8nClient) CreateVariable(key, value string) (*Variable, error) {
+	body := map[string]string{"key": key, "value": value}
+	data, _, err := c.do("POST", "/variables", body)
+	if err != nil {
+		return nil, err
+	}
+	var result Variable
+	return &result, json.Unmarshal(data, &result)
+}
+
+func (c *N8nClient) UpdateVariable(id, key, value string) (*Variable, error) {
+	body := map[string]string{}
+	if key != "" {
+		body["key"] = key
+	}
+	if value != "" {
+		body["value"] = value
+	}
+	data, _, err := c.do("PATCH", "/variables/"+id, body)
+	if err != nil {
+		return nil, err
+	}
+	var result Variable
+	return &result, json.Unmarshal(data, &result)
+}
+
+func (c *N8nClient) DeleteVariable(id string) error {
+	_, _, err := c.do("DELETE", "/variables/"+id, nil)
+	return err
+}
+
+// --- Audit ---
+
+func (c *N8nClient) GenerateAudit(additionalOptions json.RawMessage) (json.RawMessage, error) {
+	var body interface{}
+	if additionalOptions != nil {
+		body = map[string]json.RawMessage{"additionalOptions": additionalOptions}
+	}
+	data, _, err := c.do("POST", "/audit", body)
+	if err != nil {
+		return nil, err
+	}
+	return data, nil
+}
+
+// --- Users ---
+
+func (c *N8nClient) ListUsers(limit int, cursor string, includeRole bool) (*ListResponse[User], error) {
+	params := url.Values{}
+	if limit > 0 {
+		params.Set("limit", strconv.Itoa(limit))
+	}
+	if cursor != "" {
+		params.Set("cursor", cursor)
+	}
+	if includeRole {
+		params.Set("includeRole", "true")
+	}
+	path := "/users"
+	if len(params) > 0 {
+		path += "?" + params.Encode()
+	}
+	data, _, err := c.do("GET", path, nil)
+	if err != nil {
+		return nil, err
+	}
+	var result ListResponse[User]
+	return &result, json.Unmarshal(data, &result)
+}
+
+func (c *N8nClient) GetUser(idOrEmail string, includeRole bool) (*User, error) {
+	path := "/users/" + idOrEmail
+	if includeRole {
+		path += "?includeRole=true"
+	}
+	data, _, err := c.do("GET", path, nil)
+	if err != nil {
+		return nil, err
+	}
+	var result User
+	return &result, json.Unmarshal(data, &result)
+}
+
+func (c *N8nClient) CreateUsers(users []CreateUserRequest) ([]User, error) {
+	data, _, err := c.do("POST", "/users", users)
+	if err != nil {
+		return nil, err
+	}
+	var result []User
+	return result, json.Unmarshal(data, &result)
+}
+
+func (c *N8nClient) ChangeUserRole(id, role string) (*User, error) {
+	body := map[string]string{"newRoleName": role}
+	data, _, err := c.do("PATCH", "/users/"+id+"/role", body)
+	if err != nil {
+		return nil, err
+	}
+	var result User
+	return &result, json.Unmarshal(data, &result)
+}
+
+func (c *N8nClient) DeleteUser(id string) error {
+	_, _, err := c.do("DELETE", "/users/"+id, nil)
+	return err
+}
+
+// --- Tags ---
+
+func (c *N8nClient) ListTags(limit int, cursor string) (*ListResponse[Tag], error) {
+	params := url.Values{}
+	if limit > 0 {
+		params.Set("limit", strconv.Itoa(limit))
+	}
+	if cursor != "" {
+		params.Set("cursor", cursor)
+	}
+	path := "/tags"
+	if len(params) > 0 {
+		path += "?" + params.Encode()
+	}
+	data, _, err := c.do("GET", path, nil)
+	if err != nil {
+		return nil, err
+	}
 	var result ListResponse[Tag]
 	return &result, json.Unmarshal(data, &result)
+}
+
+func (c *N8nClient) GetTag(id string) (*Tag, error) {
+	data, _, err := c.do("GET", "/tags/"+id, nil)
+	if err != nil {
+		return nil, err
+	}
+	var result Tag
+	return &result, json.Unmarshal(data, &result)
+}
+
+func (c *N8nClient) UpdateTag(id, name string) (*Tag, error) {
+	body := map[string]string{"name": name}
+	data, _, err := c.do("PUT", "/tags/"+id, body)
+	if err != nil {
+		return nil, err
+	}
+	var result Tag
+	return &result, json.Unmarshal(data, &result)
+}
+
+func (c *N8nClient) DeleteTag(id string) error {
+	_, _, err := c.do("DELETE", "/tags/"+id, nil)
+	return err
 }
 
 func (c *N8nClient) CreateTag(name string) (*Tag, error) {
