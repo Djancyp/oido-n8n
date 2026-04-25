@@ -945,7 +945,7 @@ func (h *MCPHandler) HandleValidateWorkflow(_ context.Context, _ *mcp.CallToolRe
 			seenIDs := map[string]bool{}
 			for i, node := range nodes {
 				prefix := fmt.Sprintf("nodes[%d]", i)
-				for _, req := range []string{"id", "name", "type", "typeVersion", "position", "parameters"} {
+				for _, req := range []string{"id", "name", "type", "typeVersion", "position"} {
 					if _, ok := node[req]; !ok {
 						errs = append(errs, fmt.Sprintf("ERROR: %s missing required field '%s'", prefix, req))
 					}

@@ -1,39 +1,126 @@
 # Workflow JSON Format
 
-## Required Structure
+## Top-Level Structure
 
 ```json
 {
+  "name": "My Workflow",
   "nodes": [...],
-  "connections": {...}
+  "connections": {...},
+  "settings": {...}
 }
 ```
 
-Top-level `name` is optional — n8n auto-assigns one if omitted.
+| Field | Required | Notes |
+|-------|----------|-------|
+| `nodes` | Yes | Array of node objects |
+| `connections` | Yes | Wiring between nodes |
+| `name` | No | n8n auto-assigns if omitted |
+| `settings` | No | Execution behaviour, error workflow, timezone |
 
-## Node Object
+---
 
-Every node requires these fields:
+## Node Object — Full Schema
 
 ```json
 {
-  "id": "UniqueNodeId",
-  "name": "Human Readable Name",
-  "type": "n8n-nodes-base.nodeType",
+  "id": "0f5532f9-36ba-4bef-86c7-30d607400b15",
+  "name": "Jira",
+  "type": "n8n-nodes-base.jira",
   "typeVersion": 1,
-  "position": [x, y],
-  "parameters": {}
+  "position": [-100, 80],
+  "parameters": {
+    "additionalProperties": {}
+  },
+  "credentials": {
+    "jiraSoftwareCloudApi": {
+      "id": "35",
+      "name": "jiraApi"
+    }
+  },
+  "disabled": false,
+  "executeOnce": false,
+  "alwaysOutputData": false,
+  "retryOnFail": false,
+  "maxTries": 1,
+  "waitBetweenTries": 1,
+  "onError": "stopWorkflow",
+  "notesInFlow": false,
+  "notes": "",
+  "webhookId": ""
 }
 ```
 
-| Field | Notes |
-|-------|-------|
-| `id` | Unique within workflow. Can be any string. |
-| `name` | Shown in canvas. Used as connection key. |
-| `type` | Full node type: `n8n-nodes-base.<type>` |
-| `typeVersion` | Check node docs. Usually `1`, some nodes at `2`–`4`. |
-| `position` | `[x, y]` canvas coordinates. Increment x by ~220 per node. |
-| `parameters` | Node-specific config. Can be `{}` for defaults. |
+### Node Field Reference
+
+| Field | Required | Default | Notes |
+|-------|----------|---------|-------|
+| `id` | Yes | — | UUID or any unique string |
+| `name` | Yes | — | Canvas label. **Used as connection key.** |
+| `type` | Yes | — | Full type string e.g. `n8n-nodes-base.httpRequest` |
+| `typeVersion` | Yes | — | See [NODE_REFERENCE.md](../n8n-node-configuration/NODE_REFERENCE.md) |
+| `position` | Yes | — | `[x, y]`. Increment x by ~220 per node |
+| `parameters` | Yes | `{}` | Node-specific config. Use `{}` for defaults |
+| `credentials` | No | — | Required when node needs auth. See below. |
+| `disabled` | No | `false` | Skip node without removing it |
+| `executeOnce` | No | `false` | Run only for first item, ignore rest |
+| `alwaysOutputData` | No | `false` | Output empty item even if no data |
+| `retryOnFail` | No | `false` | Auto-retry on error |
+| `maxTries` | No | `1` | Max retry attempts (requires `retryOnFail: true`) |
+| `waitBetweenTries` | No | `1000` | ms between retries |
+| `onError` | No | `"stopWorkflow"` | `"stopWorkflow"` or `"continueRegularOutput"` or `"continueErrorOutput"` |
+| `notesInFlow` | No | `false` | Show `notes` as sticky label on canvas |
+| `notes` | No | `""` | Internal documentation for the node |
+| `webhookId` | No | `""` | Set by n8n for webhook nodes |
+
+### Credentials Format
+
+```json
+"credentials": {
+  "<credentialType>": {
+    "id": "<credential-id-from-n8n>",
+    "name": "<display-name>"
+  }
+}
+```
+
+Get credential IDs with `n8n_list_credentials`. Credential type keys match the node's expected auth type (e.g. `jiraSoftwareCloudApi`, `slackApi`, `googleSheetsOAuth2Api`).
+
+---
+
+## Settings Object — Full Schema
+
+```json
+"settings": {
+  "saveExecutionProgress": true,
+  "saveManualExecutions": true,
+  "saveDataErrorExecution": "all",
+  "saveDataSuccessExecution": "all",
+  "executionTimeout": 3600,
+  "errorWorkflow": "VzqKEW0ShTXA5vPj",
+  "timezone": "America/New_York",
+  "executionOrder": "v1",
+  "callerPolicy": "workflowsFromSameOwner",
+  "callerIds": "14, 18, 23",
+  "timeSavedPerExecution": 1,
+  "availableInMCP": false
+}
+```
+
+| Field | Values | Notes |
+|-------|--------|-------|
+| `saveExecutionProgress` | `true` / `false` | Save node-by-node progress (higher DB load) |
+| `saveManualExecutions` | `true` / `false` | Save runs triggered manually |
+| `saveDataErrorExecution` | `"all"` / `"none"` | Persist data for failed runs |
+| `saveDataSuccessExecution` | `"all"` / `"none"` | Persist data for successful runs |
+| `executionTimeout` | seconds (`-1` = no limit) | Kill execution after N seconds |
+| `errorWorkflow` | workflow ID string | Workflow to trigger on failure |
+| `timezone` | IANA tz string | e.g. `"America/New_York"`, `"UTC"`, `"Europe/London"` |
+| `executionOrder` | `"v1"` | Execution engine version. Use `"v1"`. |
+| `callerPolicy` | `"workflowsFromSameOwner"` / `"any"` / `"workflowsFromAList"` | Who can call this as sub-workflow |
+| `callerIds` | comma-separated IDs | Allowed caller workflow IDs (when `callerPolicy` = `"workflowsFromAList"`) |
+| `timeSavedPerExecution` | number (minutes) | For ROI tracking in n8n |
+| `availableInMCP` | `true` / `false` | Expose workflow as an MCP tool |
 
 ## Connections Object
 
