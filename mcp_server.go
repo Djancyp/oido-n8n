@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -12,10 +13,11 @@ import (
 
 type MCPHandler struct {
 	client *N8nClient
+	nodeDB *sql.DB
 }
 
-func NewMCPHandler(client *N8nClient) *MCPHandler {
-	return &MCPHandler{client: client}
+func NewMCPHandler(client *N8nClient, nodeDB *sql.DB) *MCPHandler {
+	return &MCPHandler{client: client, nodeDB: nodeDB}
 }
 
 // --- Arg types ---
@@ -212,6 +214,16 @@ type UpdateVariableArgs struct {
 
 type GenerateAuditArgs struct {
 	OptionsJSON string `json:"options,omitempty" jsonschema:"Optional audit configuration as JSON (e.g. {\"categories\":[\"credentials\",\"workflows\"]})"`
+}
+
+type SearchNodesArgs struct {
+	Keyword string `json:"keyword"         jsonschema:"Search term matched against node name and display name (partial match)"`
+	Group   string `json:"group,omitempty" jsonschema:"Filter by group: t=trigger, i=action, o=output"`
+	Limit   int    `json:"limit,omitempty" jsonschema:"Max results (default: 20)"`
+}
+
+type GetNodeSchemaArgs struct {
+	Name string `json:"name" jsonschema:"Exact node type name e.g. n8n-nodes-base.httpRequest"`
 }
 
 // --- Helpers ---
@@ -789,6 +801,36 @@ func (h *MCPHandler) HandleGenerateAudit(_ context.Context, _ *mcp.CallToolReque
 	return textResult(string(pretty)), nil, nil
 }
 
+// --- Node DB handlers ---
+
+func (h *MCPHandler) HandleSearchNodes(_ context.Context, _ *mcp.CallToolRequest, args SearchNodesArgs) (*mcp.CallToolResult, any, error) {
+	if args.Keyword == "" {
+		return errResult("keyword is required"), nil, nil
+	}
+	results, err := SearchNodes(h.nodeDB, args.Keyword, args.Group, args.Limit)
+	if err != nil {
+		return errResult(err.Error()), nil, nil
+	}
+	if len(results) == 0 {
+		return textResult("No node types found matching: " + args.Keyword), nil, nil
+	}
+	return jsonResult(results), nil, nil
+}
+
+func (h *MCPHandler) HandleGetNodeSchema(_ context.Context, _ *mcp.CallToolRequest, args GetNodeSchemaArgs) (*mcp.CallToolResult, any, error) {
+	if args.Name == "" {
+		return errResult("name is required"), nil, nil
+	}
+	schema, err := GetNodeSchema(h.nodeDB, args.Name)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return errResult("node type not found: " + args.Name), nil, nil
+		}
+		return errResult(err.Error()), nil, nil
+	}
+	return jsonResult(schema), nil, nil
+}
+
 // --- User handlers ---
 
 func (h *MCPHandler) HandleListUsers(_ context.Context, _ *mcp.CallToolRequest, args ListUsersArgs) (*mcp.CallToolResult, any, error) {
@@ -985,12 +1027,33 @@ func RunMCPServer() {
 		log.Fatalf("Failed to create n8n client: %v", err)
 	}
 
-	handler := NewMCPHandler(n8nClient)
+	nodeDB, dbCleanup, err := InitNodeDB()
+	if err != nil {
+		log.Fatalf("Failed to load node DB: %v", err)
+	}
+	defer dbCleanup()
+
+	handler := NewMCPHandler(n8nClient, nodeDB)
 
 	server := mcp.NewServer(&mcp.Implementation{
 		Name:    "oido-n8n",
 		Version: "1.0.0",
 	}, nil)
+
+	// Node lookup
+	mcp.AddTool(server, &mcp.Tool{
+		Name: "n8n_search_nodes",
+		Description: "Search available n8n node types by keyword (partial match on name and display name). " +
+			"Use before building a workflow to discover the correct type string and version. " +
+			"Optional group filter: 't'=triggers, 'i'=actions, 'o'=outputs.",
+	}, handler.HandleSearchNodes)
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name: "n8n_get_node_schema",
+		Description: "Get the full schema (inputs, outputs, and all configurable properties) for a specific n8n node type. " +
+			"Call this with the exact name from n8n_search_nodes before configuring that node in a workflow. " +
+			"The properties field contains all parameter definitions.",
+	}, handler.HandleGetNodeSchema)
 
 	// Workflows
 	mcp.AddTool(server, &mcp.Tool{

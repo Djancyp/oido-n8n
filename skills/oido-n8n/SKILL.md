@@ -49,13 +49,25 @@ description: >
 
 → Full schema (all node fields + settings): [WORKFLOW_FORMAT.md](n8n-workflow-patterns/WORKFLOW_FORMAT.md)
 
-## Node Type — Look Up Before Using
+## Node Lookup — Do This First
 
-Never guess a node type. Look it up:
-→ [NODE_REFERENCE.md](n8n-node-configuration/NODE_REFERENCE.md) — quick-lookup + all groups
-→ [COMMON_NODE_MISTAKES.md](n8n-node-configuration/COMMON_NODE_MISTAKES.md) — hallucinated/deprecated types
+Never guess a node type. Use the live tools:
 
-**Most used:**
+**Step 1 — Search by keyword:**
+```
+n8n_search_nodes keyword="http"
+n8n_search_nodes keyword="slack" group="i"   ← actions only
+n8n_search_nodes keyword="trigger" group="t" ← triggers only
+```
+Groups: `t`=trigger · `i`=action/input · `o`=output
+
+**Step 2 — Fetch full schema before configuring:**
+```
+n8n_get_node_schema name="n8n-nodes-base.httpRequest"
+```
+The `properties` field lists every configurable parameter. Use returned `name` and `version` directly in the workflow JSON.
+
+**Common nodes (verified):**
 ```
 n8n-nodes-base.manualTrigger       v1
 n8n-nodes-base.scheduleTrigger     v1
@@ -72,6 +84,8 @@ n8n-nodes-base.stopAndError        v1   ← NOT errorHandler
 n8n-nodes-base.respondToWebhook    v1
 @n8n/n8n-nodes-langchain.agent     v1
 ```
+
+→ Static backup: [NODE_REFERENCE.md](n8n-node-configuration/NODE_REFERENCE.md) · [COMMON_NODE_MISTAKES.md](n8n-node-configuration/COMMON_NODE_MISTAKES.md)
 
 ## Choose a Pattern First
 
@@ -128,4 +142,5 @@ Run `n8n_validate_workflow` before every create. Expect 2–3 fix cycles.
 create workflow, build workflow, design workflow, new workflow, automate,
 Code node, JavaScript, Python, $input, $json, expression, `{{ }}`,
 node type, httpRequest, webhook, trigger, schedule, AI agent,
-validate workflow, workflow JSON, connections, nodes
+validate workflow, workflow JSON, connections, nodes,
+n8n_search_nodes, n8n_get_node_schema, node type lookup, node schema
