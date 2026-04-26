@@ -1162,6 +1162,11 @@ Minimal example:
 		Description: "Permanently delete a workflow by ID. Irreversible.",
 	}, handler.HandleDeleteWorkflow)
 
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "n8n_list_workflows",
+		Description: "List all workflows with ID, name, and active status. Filter by active=true/false or tag names.",
+	}, handler.HandleListWorkflows)
+
 	ctx := context.Background()
 	log.Println("Oido n8n MCP Server starting on stdio...")
 	if err := server.Run(ctx, &mcp.StdioTransport{}); err != nil {
