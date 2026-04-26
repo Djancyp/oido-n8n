@@ -1127,286 +1127,40 @@ func RunMCPServer() {
 		Version: "1.0.0",
 	}, nil)
 
-	// Node lookup
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "n8n_search_nodes",
 		Description: "Search available n8n node types by keyword (partial match on name and display name). " +
-			"Use before building a workflow to discover the correct type string and version. " +
+			"Always call this first to get the correct type string and version before building a workflow. " +
 			"Optional group filter: 't'=triggers, 'i'=actions, 'o'=outputs.",
 	}, handler.HandleSearchNodes)
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name: "n8n_get_node_schema",
-		Description: "Get the full schema (inputs, outputs, and all configurable properties) for a specific n8n node type. " +
-			"Call this with the exact name from n8n_search_nodes before configuring that node in a workflow. " +
-			"The properties field contains all parameter definitions.",
-	}, handler.HandleGetNodeSchema)
-
-	// Workflows
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "n8n_list_workflows",
-		Description: "List all workflows with ID, name, active status, and last-updated time. Filter by active=true/false or by tag names. Use this to find a workflow ID before calling get/update/execute/delete.",
-	}, handler.HandleListWorkflows)
-
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "n8n_get_workflow",
-		Description: "Get full workflow definition including all nodes and connections. Always call this before n8n_update_workflow to have the current state. Use to inspect node configuration or debug a workflow.",
-	}, handler.HandleGetWorkflow)
-
-	mcp.AddTool(server, &mcp.Tool{
 		Name: "n8n_create_workflow",
-		Description: `Create a new workflow from a JSON definition.
+		Description: `Create a new n8n workflow.
 
-REQUIRED STEPS BEFORE CALLING THIS:
-1. n8n_search_nodes — find the correct type string for every node you need (never guess type names)
-2. n8n_validate_workflow — validate your JSON; fix all ERRORs before calling this tool
+BEFORE CALLING: use n8n_search_nodes to find correct type strings — never guess node type names.
+This tool validates the workflow internally and will REJECT it if node types are wrong or required fields are missing.
 
-This tool performs its own pre-flight validation and will REJECT the workflow if:
-- Any node is missing id, name, type, typeVersion, or position
-- Any node type does not exist in the node registry (wrong/deprecated type names fail here)
-- JSON is malformed
+Every node requires: id, name, type, typeVersion, position, parameters.
+Connection keys use node "name" (not "id").
 
-Minimal required format:
+Minimal example:
 {
-  "nodes": [
-    {
-      "id": "trigger1",
-      "name": "Manual Trigger",
-      "type": "n8n-nodes-base.manualTrigger",
-      "typeVersion": 1,
-      "position": [240, 300],
-      "parameters": {}
-    }
-  ],
-  "connections": {
-    "Manual Trigger": { "main": [[{ "node": "Next Node Name", "type": "main", "index": 0 }]] }
-  }
-}
-Connection keys use node "name" (not "id"). Top-level "name" is optional.`,
+  "name": "My Workflow",
+  "nodes": [{"id":"t1","name":"Schedule","type":"n8n-nodes-base.scheduleTrigger","typeVersion":1,"position":[240,300],"parameters":{}}],
+  "connections": {}
+}`,
 	}, handler.HandleCreateWorkflow)
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "n8n_update_workflow",
-		Description: "Replace a workflow's full definition by ID. Use n8n_update_partial_workflow instead when changing only name, nodes, connections, or settings — it avoids sending the full JSON. Always call n8n_get_workflow first to get the current state.",
+		Description: "Update an existing workflow by ID. Provide the full updated workflow JSON. Use n8n_search_nodes to verify node types before updating.",
 	}, handler.HandleUpdateWorkflow)
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "n8n_update_partial_workflow",
-		Description: "Surgically update specific fields of a workflow (name, nodes, connections, or settings) without replacing the entire definition. Preferred over n8n_update_workflow for targeted changes. Fetches current state internally before patching.",
-	}, handler.HandleUpdatePartialWorkflow)
-
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "n8n_validate_workflow",
-		Description: "Validate workflow JSON structure before creating or updating. Checks required node fields (id, name, type, typeVersion, position), validates every node type exists in the node registry, checks for duplicate IDs and malformed connections. Returns '✓ valid' or a list of ERROR/WARN lines with suggestions. Always run this before n8n_create_workflow.",
-	}, handler.HandleValidateWorkflow)
-
-	mcp.AddTool(server, &mcp.Tool{
 		Name:        "n8n_delete_workflow",
-		Description: "Permanently delete a workflow by ID. This is irreversible — confirm the correct ID with n8n_get_workflow or n8n_list_workflows before calling. Deactivate first if the workflow is active.",
+		Description: "Permanently delete a workflow by ID. Irreversible.",
 	}, handler.HandleDeleteWorkflow)
-
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "n8n_activate_workflow",
-		Description: "Activate a workflow so it responds to its trigger (schedule, webhook, etc.). The workflow must have a valid trigger node. Use n8n_deactivate_workflow to pause without deleting.",
-	}, handler.HandleActivateWorkflow)
-
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "n8n_deactivate_workflow",
-		Description: "Deactivate a workflow to pause its trigger responses without deleting it. Use this instead of delete when the workflow should be kept but temporarily stopped.",
-	}, handler.HandleDeactivateWorkflow)
-
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "n8n_execute_workflow",
-		Description: "Manually trigger a workflow execution, optionally passing JSON input data. Returns the execution ID for tracking. Use n8n_list_executions or n8n_get_execution to check results.",
-	}, handler.HandleExecuteWorkflow)
-
-	// Executions
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "n8n_list_executions",
-		Description: "List workflow execution history. Filter by workflow_id and/or status (waiting/running/success/error/canceled). Use status=error to find failures, status=running to find in-progress executions.",
-	}, handler.HandleListExecutions)
-
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "n8n_get_execution",
-		Description: "Get details for a specific execution. Set include_data=true to include the full input/output data for each node — useful for debugging failures or inspecting results.",
-	}, handler.HandleGetExecution)
-
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "n8n_delete_execution",
-		Description: "Delete an execution record by ID. Use to clean up old or failed execution history. Does not affect the workflow itself.",
-	}, handler.HandleDeleteExecution)
-
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "n8n_stop_execution",
-		Description: "Stop a specific running or waiting execution by ID. Use n8n_list_executions with status=running to find the ID. To stop all executions for a workflow at once, use n8n_stop_executions.",
-	}, handler.HandleStopExecution)
-
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "n8n_stop_executions",
-		Description: "Stop all currently running executions matching the given criteria. Provide workflow_id to limit to a specific workflow, or omit to stop all running executions on the instance.",
-	}, handler.HandleStopExecutions)
-
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "n8n_retry_execution",
-		Description: "Retry a failed execution from the point of failure using the same original input data. Only works on executions with status=error. Use n8n_list_executions with status=error to find candidates.",
-	}, handler.HandleRetryExecution)
-
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "n8n_list_execution_tags",
-		Description: "List all annotation tags attached to a specific execution. Use to see how an execution has been categorised or labelled.",
-	}, handler.HandleListExecutionTags)
-
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "n8n_update_execution_tags",
-		Description: "Replace all tags on an execution with a new set of tag IDs. This is a full replacement — any tags not in the new list are removed. Use n8n_list_tags to find tag IDs first.",
-	}, handler.HandleUpdateExecutionTags)
-
-	// Credentials
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "n8n_list_credentials",
-		Description: "List all stored credentials showing name, type, and ID — no secret values are returned. Use to find credential IDs for deletion or to check what credentials already exist before creating new ones.",
-	}, handler.HandleListCredentials)
-
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "n8n_create_credential",
-		Description: "Create a new credential for a service integration. Always call n8n_get_credential_schema first to know the exact required fields for the credential type. Common types: httpBasicAuth, githubApi, slackApi, googleSheetsOAuth2Api.",
-	}, handler.HandleCreateCredential)
-
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "n8n_get_credential",
-		Description: "Get metadata for a specific credential by ID (name, type, timestamps). Sensitive fields such as passwords and API keys are not returned. Use n8n_list_credentials to find the ID first.",
-	}, handler.HandleGetCredential)
-
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "n8n_update_credential",
-		Description: "Update an existing credential — useful for rotating API keys or changing login details. Provide the full updated data JSON. Use n8n_get_credential_schema to confirm required fields for the type.",
-	}, handler.HandleUpdateCredential)
-
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "n8n_delete_credential",
-		Description: "Delete a credential by ID. Irreversible. Any workflows using this credential will fail after deletion. Use n8n_list_credentials to confirm the ID first.",
-	}, handler.HandleDeleteCredential)
-
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "n8n_get_credential_schema",
-		Description: "Get the required and optional fields for a credential type. Always call this before n8n_create_credential. Example types: httpBasicAuth, githubApi, slackApi, googleSheetsOAuth2Api, postgresDb.",
-	}, handler.HandleGetCredentialSchema)
-
-	// Tags
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "n8n_list_tags",
-		Description: "List all workflow tags with their IDs and names. Supports pagination (limit/cursor). Use to find tag IDs for filtering workflows or assigning tags.",
-	}, handler.HandleListTags)
-
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "n8n_create_tag",
-		Description: "Create a new workflow tag. Tags help organize and filter workflows. After creation, assign the tag when creating or updating a workflow.",
-	}, handler.HandleCreateTag)
-
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "n8n_get_tag",
-		Description: "Get the ID and name of a specific tag. Use when you have a tag ID and need to verify it exists or retrieve its current name.",
-	}, handler.HandleGetTag)
-
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "n8n_update_tag",
-		Description: "Rename an existing tag. All workflows using this tag are automatically updated since they reference by ID.",
-	}, handler.HandleUpdateTag)
-
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "n8n_delete_tag",
-		Description: "Delete a tag and automatically unlink it from all workflows that reference it. Use n8n_list_tags to confirm the ID first.",
-	}, handler.HandleDeleteTag)
-
-	// Webhooks
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "n8n_trigger_webhook",
-		Description: "Trigger a workflow directly via its webhook path without needing an API key. The workflow must have a Webhook node with the matching path. Only works if the webhook auth mode is set to 'none' in n8n.",
-	}, handler.HandleTriggerWebhook)
-
-	// Projects
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "n8n_list_projects",
-		Description: "List all projects you have access to, with ID, name, and type. Supports pagination (limit/cursor).",
-	}, handler.HandleListProjects)
-
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "n8n_get_project",
-		Description: "Get metadata for a specific project by ID. Use n8n_list_projects to find the ID first.",
-	}, handler.HandleGetProject)
-
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "n8n_create_project",
-		Description: "Create a new project. Type: 'team' (standard, default) or 'enterprise'. Projects group workflows and credentials by team.",
-	}, handler.HandleCreateProject)
-
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "n8n_update_project",
-		Description: "Rename an existing project. Currently the only supported update operation.",
-	}, handler.HandleUpdateProject)
-
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "n8n_delete_project",
-		Description: "Permanently delete a project by ID. Use n8n_list_projects to confirm the ID first.",
-	}, handler.HandleDeleteProject)
-
-	// Variables
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "n8n_list_variables",
-		Description: "List all environment variables defined on the n8n instance with their IDs, keys, and values. Supports pagination (limit/cursor).",
-	}, handler.HandleListVariables)
-
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "n8n_get_variable",
-		Description: "Get the key and value of a specific variable by ID. Use n8n_list_variables to find the ID first.",
-	}, handler.HandleGetVariable)
-
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "n8n_create_variable",
-		Description: "Create a new key-value environment variable on the n8n instance. Variables can be referenced in workflows via the $vars object.",
-	}, handler.HandleCreateVariable)
-
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "n8n_update_variable",
-		Description: "Update the key or value of an existing variable. Provide at least one of key or value. Changes are reflected immediately in all workflows that reference this variable.",
-	}, handler.HandleUpdateVariable)
-
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "n8n_delete_variable",
-		Description: "Permanently delete a variable by ID. Workflows referencing this variable via $vars will lose access to it. Use n8n_list_variables to confirm the ID first.",
-	}, handler.HandleDeleteVariable)
-
-	// Audit
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "n8n_generate_audit",
-		Description: "Generate a comprehensive security audit report for the n8n instance. Returns a risk assessment covering credentials, workflows, nodes, and instance configuration. Optionally pass options JSON to scope the audit to specific categories.",
-	}, handler.HandleGenerateAudit)
-
-	// Users
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "n8n_list_users",
-		Description: "List all users on the n8n instance with ID, email, name, and optional role. Supports pagination (limit/cursor). Set include_role=true to see each user's global role.",
-	}, handler.HandleListUsers)
-
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "n8n_get_user",
-		Description: "Get details for a specific user by ID or email address. Set include_role=true to include the user's global role in the response.",
-	}, handler.HandleGetUser)
-
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "n8n_create_users",
-		Description: "Invite or create multiple users at once. Provide a JSON array of user objects, each with at minimum an email field. Optional fields: role, firstName, lastName. Example: [{\"email\":\"alice@example.com\",\"role\":\"global:member\"}]",
-	}, handler.HandleCreateUsers)
-
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "n8n_change_user_role",
-		Description: "Change the global administrative role of a user. Common roles: global:admin (full access), global:member (standard user). Use n8n_get_user first to confirm the current role before changing it.",
-	}, handler.HandleChangeUserRole)
-
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "n8n_delete_user",
-		Description: "Permanently delete a user account from the n8n instance. Irreversible. Use n8n_get_user or n8n_list_users to confirm the ID before calling.",
-	}, handler.HandleDeleteUser)
 
 	ctx := context.Background()
 	log.Println("Oido n8n MCP Server starting on stdio...")

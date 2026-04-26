@@ -5,6 +5,7 @@ import (
 	_ "embed"
 	"fmt"
 	"os"
+	"strconv"
 
 	_ "modernc.org/sqlite"
 )
@@ -102,12 +103,36 @@ func SearchNodes(db *sql.DB, keyword, group string, limit int) ([]NodeType, erro
 	var results []NodeType
 	for rows.Next() {
 		var n NodeType
-		if err := rows.Scan(&n.Name, &n.DisplayName, &n.GroupName, &n.Version); err != nil {
+		var versionRaw interface{}
+		if err := rows.Scan(&n.Name, &n.DisplayName, &n.GroupName, &versionRaw); err != nil {
 			return nil, err
 		}
+		n.Version = toInt(versionRaw)
 		results = append(results, n)
 	}
 	return results, rows.Err()
+}
+
+// toInt converts a raw SQLite value to int. Some rows have "[object Object]" stored
+// as the version column (JS serialization artifact) — those fall back to 1.
+func toInt(v interface{}) int {
+	switch val := v.(type) {
+	case int64:
+		return int(val)
+	case float64:
+		return int(val)
+	case string:
+		if n, err := strconv.Atoi(val); err == nil {
+			return n
+		}
+		return 1
+	case []byte:
+		if n, err := strconv.Atoi(string(val)); err == nil {
+			return n
+		}
+		return 1
+	}
+	return 1
 }
 
 // GetNodeSchema returns the full record for a single node type by exact name.
@@ -118,9 +143,11 @@ func GetNodeSchema(db *sql.DB, name string) (*NodeSchema, error) {
 		name,
 	)
 	var s NodeSchema
-	if err := row.Scan(&s.Name, &s.DisplayName, &s.GroupName, &s.Version,
+	var versionRaw interface{}
+	if err := row.Scan(&s.Name, &s.DisplayName, &s.GroupName, &versionRaw,
 		&s.Inputs, &s.Outputs, &s.Properties); err != nil {
 		return nil, err
 	}
+	s.Version = toInt(versionRaw)
 	return &s, nil
 }
