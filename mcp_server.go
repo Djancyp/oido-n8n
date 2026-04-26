@@ -294,6 +294,63 @@ func (h *MCPHandler) HandleCreateWorkflow(_ context.Context, _ *mcp.CallToolRequ
 	if args.WorkflowJSON == "" {
 		return errResult("workflow_json is required"), nil, nil
 	}
+
+	// Pre-flight: parse + validate before hitting the API
+	var wf map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(args.WorkflowJSON), &wf); err != nil {
+		return textResult("ERROR: invalid JSON — " + err.Error() + "\nFix the JSON then call n8n_create_workflow again."), nil, nil
+	}
+	if _, ok := wf["nodes"]; !ok {
+		return textResult("ERROR: missing required field 'nodes'"), nil, nil
+	}
+	if _, ok := wf["connections"]; !ok {
+		return textResult("ERROR: missing required field 'connections'"), nil, nil
+	}
+	var preErrs []string
+	if nodesRaw, ok := wf["nodes"]; ok {
+		var nodes []map[string]json.RawMessage
+		if err := json.Unmarshal(nodesRaw, &nodes); err == nil {
+			seenIDs := map[string]bool{}
+			for i, node := range nodes {
+				prefix := fmt.Sprintf("nodes[%d]", i)
+				for _, req := range []string{"id", "name", "type", "typeVersion", "position"} {
+					if _, ok := node[req]; !ok {
+						preErrs = append(preErrs, fmt.Sprintf("ERROR: %s missing required field '%s'", prefix, req))
+					}
+				}
+				if idRaw, ok := node["id"]; ok {
+					var id string
+					if json.Unmarshal(idRaw, &id) == nil {
+						if seenIDs[id] {
+							preErrs = append(preErrs, fmt.Sprintf("ERROR: duplicate node id %q", id))
+						}
+						seenIDs[id] = true
+					}
+				}
+				if h.nodeDB != nil {
+					if typeRaw, ok := node["type"]; ok {
+						var nodeType string
+						if json.Unmarshal(typeRaw, &nodeType) == nil && nodeType != "" {
+							var count int
+							_ = h.nodeDB.QueryRow(`SELECT COUNT(*) FROM node_types WHERE name = ?`, nodeType).Scan(&count)
+							if count == 0 {
+								parts := strings.Split(nodeType, ".")
+								keyword := parts[len(parts)-1]
+								preErrs = append(preErrs, fmt.Sprintf(
+									"ERROR: %s type %q not found — run n8n_search_nodes keyword=%q to find the correct type",
+									prefix, nodeType, keyword,
+								))
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+	if len(preErrs) > 0 {
+		return textResult("Workflow has errors — fix before creating:\n\n" + strings.Join(preErrs, "\n")), nil, nil
+	}
+
 	w, err := h.client.CreateWorkflow(args.WorkflowJSON)
 	if err != nil {
 		return errResult(err.Error()), nil, nil
@@ -1013,6 +1070,36 @@ func (h *MCPHandler) HandleValidateWorkflow(_ context.Context, _ *mcp.CallToolRe
 		}
 	}
 
+	// Validate node types exist in DB
+	if h.nodeDB != nil {
+		if nodesRaw, ok := wf["nodes"]; ok {
+			var nodes []map[string]json.RawMessage
+			if err := json.Unmarshal(nodesRaw, &nodes); err == nil {
+				for i, node := range nodes {
+					typeRaw, ok := node["type"]
+					if !ok {
+						continue
+					}
+					var nodeType string
+					if err := json.Unmarshal(typeRaw, &nodeType); err != nil || nodeType == "" {
+						continue
+					}
+					var count int
+					_ = h.nodeDB.QueryRow(`SELECT COUNT(*) FROM node_types WHERE name = ?`, nodeType).Scan(&count)
+					if count == 0 {
+						// Derive a search keyword from the type string for a helpful suggestion
+						parts := strings.Split(nodeType, ".")
+						keyword := parts[len(parts)-1]
+						errs = append(errs, fmt.Sprintf(
+							"ERROR: nodes[%d] type %q not found in node registry — run n8n_search_nodes keyword=%q to find the correct type",
+							i, nodeType, keyword,
+						))
+					}
+				}
+			}
+		}
+	}
+
 	if len(errs) == 0 {
 		return textResult("✓ valid — workflow structure looks correct"), nil, nil
 	}
@@ -1068,11 +1155,22 @@ func RunMCPServer() {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "n8n_create_workflow",
-		Description: `Create a new workflow from a JSON definition. Run n8n_validate_workflow first. Minimal required format:
+		Description: `Create a new workflow from a JSON definition.
+
+REQUIRED STEPS BEFORE CALLING THIS:
+1. n8n_search_nodes — find the correct type string for every node you need (never guess type names)
+2. n8n_validate_workflow — validate your JSON; fix all ERRORs before calling this tool
+
+This tool performs its own pre-flight validation and will REJECT the workflow if:
+- Any node is missing id, name, type, typeVersion, or position
+- Any node type does not exist in the node registry (wrong/deprecated type names fail here)
+- JSON is malformed
+
+Minimal required format:
 {
   "nodes": [
     {
-      "id": "ManualTrigger",
+      "id": "trigger1",
       "name": "Manual Trigger",
       "type": "n8n-nodes-base.manualTrigger",
       "typeVersion": 1,
@@ -1084,7 +1182,7 @@ func RunMCPServer() {
     "Manual Trigger": { "main": [[{ "node": "Next Node Name", "type": "main", "index": 0 }]] }
   }
 }
-Connection keys use node "name" (not "id"). "name" at top level is optional — n8n auto-assigns one.`,
+Connection keys use node "name" (not "id"). Top-level "name" is optional.`,
 	}, handler.HandleCreateWorkflow)
 
 	mcp.AddTool(server, &mcp.Tool{
@@ -1099,7 +1197,7 @@ Connection keys use node "name" (not "id"). "name" at top level is optional — 
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "n8n_validate_workflow",
-		Description: "Validate workflow JSON structure before creating or updating. Checks required fields (name, nodes, connections), node structure (id, type, position, parameters), and duplicate node IDs. Returns 'valid' or a list of ERROR/WARN lines. Use before n8n_create_workflow or n8n_update_workflow.",
+		Description: "Validate workflow JSON structure before creating or updating. Checks required node fields (id, name, type, typeVersion, position), validates every node type exists in the node registry, checks for duplicate IDs and malformed connections. Returns '✓ valid' or a list of ERROR/WARN lines with suggestions. Always run this before n8n_create_workflow.",
 	}, handler.HandleValidateWorkflow)
 
 	mcp.AddTool(server, &mcp.Tool{

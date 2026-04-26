@@ -2,12 +2,17 @@
 
 ## Nodes That Do NOT Exist
 
-These are hallucinated node types — never use them:
+These are hallucinated or deprecated node types — never use them:
 
 | Wrong | Correct | Notes |
 |-------|---------|-------|
-| `n8n-nodes-base.hackerNews` | `n8n-nodes-base.httpRequest` | HN has no native node. Use HTTP Request + Algolia API |
-| `n8n-nodes-base.sendEmail` | `n8n-nodes-base.emailSend` | Transposed name |
+| `n8n-nodes-base.cron` | `n8n-nodes-base.scheduleTrigger` v1 | Old name, removed |
+| `n8n-nodes-base.timeTrigger` | `n8n-nodes-base.scheduleTrigger` v1 | Never existed |
+| `n8n-nodes-base.triggerCron` | `n8n-nodes-base.scheduleTrigger` v1 | Never existed |
+| `n8n-nodes-base.start` | `n8n-nodes-base.manualTrigger` v1 | Never existed |
+| `n8n-nodes-base.filter` | `n8n-nodes-base.if` v2 | Never existed; use IF node |
+| `n8n-nodes-base.hackerNews` | `n8n-nodes-base.httpRequest` | HN has no native node |
+| `n8n-nodes-base.sendEmail` | `n8n-nodes-base.emailSend` v2 | Transposed name |
 | `n8n-nodes-base.errorHandler` | `n8n-nodes-base.stopAndError` | For explicit error stops |
 | `n8n-nodes-base.functionItem` | `n8n-nodes-base.code` v2 | Deprecated in n8n ≥1.0 |
 | `n8n-nodes-base.function` | `n8n-nodes-base.code` v2 | Deprecated in n8n ≥1.0 |
@@ -17,6 +22,7 @@ These are hallucinated node types — never use them:
 
 | Deprecated | Replacement | typeVersion |
 |-----------|-------------|-------------|
+| `cron` | `scheduleTrigger` | 1 |
 | `functionItem` | `code` | 2 |
 | `function` | `code` | 2 |
 | `itemLists` | `splitInBatches` or `aggregate` | — |

@@ -13,9 +13,10 @@ description: >
 ## Create Workflow — Step by Step
 
 ```
-1. n8n_validate_workflow   ← check JSON before sending
-2. n8n_create_workflow     ← POST to n8n
-3. n8n_activate_workflow   ← enable triggers (optional)
+1. n8n_search_nodes         ← find node type
+2. n8n_validate_workflow   ← check JSON before sending
+3. n8n_create_workflow     ← POST to n8n
+4. n8n_activate_workflow   ← enable triggers (optional)
 ```
 
 ## Workflow JSON — Minimum Required
@@ -38,10 +39,12 @@ description: >
       "main": [[{ "node": "Next Node Name", "type": "main", "index": 0 }]]
     }
   }
+  settings:{}
 }
 ```
 
 **Rules:**
+
 - Connection keys = node `name` (NOT `id`)
 - Last node in chain has no `connections` entry
 - `name` at top level is optional — n8n auto-assigns
@@ -54,20 +57,25 @@ description: >
 Never guess a node type. Use the live tools:
 
 **Step 1 — Search by keyword:**
+
 ```
 n8n_search_nodes keyword="http"
 n8n_search_nodes keyword="slack" group="i"   ← actions only
 n8n_search_nodes keyword="trigger" group="t" ← triggers only
 ```
+
 Groups: `t`=trigger · `i`=action/input · `o`=output
 
 **Step 2 — Fetch full schema before configuring:**
+
 ```
 n8n_get_node_schema name="n8n-nodes-base.httpRequest"
 ```
+
 The `properties` field lists every configurable parameter. Use returned `name` and `version` directly in the workflow JSON.
 
 **Common nodes (verified):**
+
 ```
 n8n-nodes-base.manualTrigger       v1
 n8n-nodes-base.scheduleTrigger     v1
@@ -89,14 +97,14 @@ n8n-nodes-base.respondToWebhook    v1
 
 ## Choose a Pattern First
 
-| Pattern | Trigger | Use when |
-|---------|---------|----------|
-| Webhook | `webhook` v2 | Receiving external events |
-| HTTP API | `scheduleTrigger` or `webhook` | Fetching from REST APIs |
-| Database | `scheduleTrigger` | Read/write/sync DB records |
-| AI Agent | `chatTrigger` or `webhook` | LLM + tools + memory |
-| Scheduled | `scheduleTrigger` | Reports, recurring jobs |
-| Batch | `scheduleTrigger` + `splitInBatches` | Large datasets, rate limits |
+| Pattern   | Trigger                              | Use when                    |
+| --------- | ------------------------------------ | --------------------------- |
+| Webhook   | `webhook` v2                         | Receiving external events   |
+| HTTP API  | `scheduleTrigger` or `webhook`       | Fetching from REST APIs     |
+| Database  | `scheduleTrigger`                    | Read/write/sync DB records  |
+| AI Agent  | `chatTrigger` or `webhook`           | LLM + tools + memory        |
+| Scheduled | `scheduleTrigger`                    | Reports, recurring jobs     |
+| Batch     | `scheduleTrigger` + `splitInBatches` | Large datasets, rate limits |
 
 → Pattern skeletons: [SKILL_GUIDE.md](n8n-workflow-patterns/SKILL_GUIDE.md)
 
@@ -109,7 +117,7 @@ const items = $input.all();
 if (!items[0].json.hits) throw new Error('No data from API');
 
 return items.map(item => ({
-  json: { ...item.json, processed: true }
+  json: { ...item.json, processed: true },
 }));
 ```
 
@@ -130,6 +138,7 @@ NOT inside Code nodes — use `$input.first().json.field` there instead.
 ## Validation
 
 Run `n8n_validate_workflow` before every create. Expect 2–3 fix cycles.
+
 - `ERROR` — blocks activation, must fix
 - `WARN` — advisory, fix before production
 
