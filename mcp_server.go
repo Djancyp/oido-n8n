@@ -871,7 +871,15 @@ func (h *MCPHandler) HandleSearchNodes(_ context.Context, _ *mcp.CallToolRequest
 	if len(results) == 0 {
 		return textResult("No node types found matching: " + args.Keyword), nil, nil
 	}
-	return jsonResult(results), nil, nil
+	type slim struct {
+		Name        string `json:"name"`
+		DisplayName string `json:"display_name"`
+	}
+	out := make([]slim, len(results))
+	for i, r := range results {
+		out[i] = slim{Name: r.Name, DisplayName: r.DisplayName}
+	}
+	return jsonResult(out), nil, nil
 }
 
 func (h *MCPHandler) HandleGetNodeSchema(_ context.Context, _ *mcp.CallToolRequest, args GetNodeSchemaArgs) (*mcp.CallToolResult, any, error) {
