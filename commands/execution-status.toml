@@ -2,8 +2,8 @@ name = "execution-status"
 description = "Check the status of a workflow execution."
 
 prompt = """
-Get the status of execution {{id}} using the n8n_get_execution tool.
-Show the execution status, start time, finish time, and whether it completed successfully.
+Get the status of execution {{id}} using the n8n_get_workflow tool on the execution's workflow.
+Show the workflow details and current status.
 """
 
 [parameters]

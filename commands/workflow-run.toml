@@ -1,12 +1,10 @@
 name = "workflow-run"
-description = "Execute an n8n workflow by ID."
+description = "Get workflow definition and validate it."
 
 prompt = """
-Execute the n8n workflow with id={{id}} using the n8n_execute_workflow tool.
-If data is provided, pass it as input data.
-Report back the execution ID.
+Get the full definition of workflow {{id}} using n8n_get_workflow.
+Show the workflow name, active status, node count, and connection structure.
 """
 
 [parameters]
-id = { type = "string", description = "Workflow ID to execute", required = true }
-data = { type = "string", description = "Optional input data as JSON string", required = false }
+id = { type = "string", description = "Workflow ID to inspect", required = true }

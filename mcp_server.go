@@ -43,11 +43,6 @@ type UpdateWorkflowArgs struct {
 	WorkflowJSON string `json:"workflow_json" jsonschema:"Partial or full workflow update as JSON string"`
 }
 
-type ExecuteWorkflowArgs struct {
-	ID       string `json:"id"              jsonschema:"Workflow ID"`
-	DataJSON string `json:"data,omitempty"  jsonschema:"Optional input data as JSON string"`
-}
-
 type ListExecutionsArgs struct {
 	WorkflowID  string `json:"workflow_id,omitempty"  jsonschema:"Filter by workflow ID"`
 	Status      string `json:"status,omitempty"       jsonschema:"Filter: waiting, running, success, error, canceled"`
@@ -402,17 +397,6 @@ func (h *MCPHandler) HandleDeactivateWorkflow(_ context.Context, _ *mcp.CallTool
 		return errResult(err.Error()), nil, nil
 	}
 	return textResult(fmt.Sprintf("Workflow %q (id=%s) deactivated.", w.Name, w.ID)), nil, nil
-}
-
-func (h *MCPHandler) HandleExecuteWorkflow(_ context.Context, _ *mcp.CallToolRequest, args ExecuteWorkflowArgs) (*mcp.CallToolResult, any, error) {
-	if args.ID == "" {
-		return errResult("id is required"), nil, nil
-	}
-	resp, err := h.client.ExecuteWorkflow(args.ID, args.DataJSON)
-	if err != nil {
-		return errResult(err.Error()), nil, nil
-	}
-	return textResult(fmt.Sprintf("Workflow execution started. executionId=%d", resp.ExecutionID)), nil, nil
 }
 
 // --- Execution handlers ---
@@ -1158,9 +1142,49 @@ func RunMCPServer() {
 	}, handler.HandleDeleteWorkflow)
 
 	mcp.AddTool(server, &mcp.Tool{
+		Name:        "n8n_validate_workflow",
+		Description: "Validate workflow JSON structure and check node types against the node registry.",
+	}, handler.HandleValidateWorkflow)
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "n8n_get_workflow",
+		Description: "Get full workflow definition (nodes + connections) by ID.",
+	}, handler.HandleGetWorkflow)
+
+	mcp.AddTool(server, &mcp.Tool{
 		Name:        "n8n_list_workflows",
 		Description: "List all workflows with ID, name, and active status. Filter by active=true/false or tag names.",
 	}, handler.HandleListWorkflows)
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "n8n_list_credentials",
+		Description: "List all credentials (secrets excluded). Filter by type or credential ID.",
+	}, handler.HandleListCredentials)
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "n8n_get_credential",
+		Description: "Get credential by ID (secrets excluded).",
+	}, handler.HandleGetCredential)
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "n8n_create_credential",
+		Description: "Create a credential. Use n8n_get_credential_schema first to find required fields.",
+	}, handler.HandleCreateCredential)
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "n8n_update_credential",
+		Description: "Update credential by ID (name, type, data).",
+	}, handler.HandleUpdateCredential)
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "n8n_delete_credential",
+		Description: "Delete a credential by ID. Irreversible.",
+	}, handler.HandleDeleteCredential)
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "n8n_get_credential_schema",
+		Description: "Get required fields and schema for a credential type before creating one.",
+	}, handler.HandleGetCredentialSchema)
 
 	ctx := context.Background()
 	log.Println("Oido n8n MCP Server starting on stdio...")

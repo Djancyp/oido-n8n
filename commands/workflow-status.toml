@@ -1,14 +1,11 @@
 name = "workflow-status"
-description = "List recent executions and check for failures."
+description = "Check workflow active status and validate its JSON."
 
 prompt = """
-List recent executions using n8n_list_executions.
-If workflow_id is provided, filter by it.
-If status is provided, filter by it (options: waiting, running, success, error, canceled).
-Summarize the results and highlight any failures.
+Get workflow {{id}} using n8n_get_workflow to show its current status.
+Show the name, whether it's active, and optionally run n8n_validate_workflow on it.
 """
 
 [parameters]
-workflow_id = { type = "string", description = "Filter by workflow ID", required = false }
-status = { type = "string", description = "Filter by status: waiting, running, success, error, canceled", required = false }
-limit = { type = "number", description = "Max results to show (default: 20)", default = 20 }
+id = { type = "string", description = "Workflow ID to check", required = true }
+validate = { type = "boolean", description = "Also run n8n_validate_workflow on the workflow", required = false }

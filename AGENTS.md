@@ -39,7 +39,15 @@ Only 5 tools are wired up via `mcp.AddTool()` in `RunMCPServer()` — not the fu
 | `n8n_create_workflow` | Create workflow from JSON (validates internally) |
 | `n8n_update_workflow` | Update workflow by ID (full JSON) |
 | `n8n_delete_workflow` | Delete workflow by ID |
+| `n8n_get_workflow` | Get full workflow definition (nodes + connections) by ID |
+| `n8n_validate_workflow` | Validate workflow JSON without creating |
 | `n8n_list_workflows` | List workflows, filter by active/tags |
+| `n8n_list_credentials` | List credentials (secrets excluded) |
+| `n8n_get_credential` | Get credential by ID |
+| `n8n_create_credential` | Create credential — use `n8n_get_credential_schema` first |
+| `n8n_update_credential` | Update credential by ID |
+| `n8n_delete_credential` | Delete credential by ID |
+| `n8n_get_credential_schema` | Get required fields for a credential type |
 
 All other handler functions (`HandleListExecutions`, `HandleCreateCredential`, etc.) are **not registered** — adding them requires a `mcp.AddTool()` call in `RunMCPServer()`.
 

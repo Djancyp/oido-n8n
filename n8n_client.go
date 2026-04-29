@@ -96,10 +96,6 @@ type ListResponse[T any] struct {
 	NextCursor string `json:"nextCursor,omitempty"`
 }
 
-type ExecuteResponse struct {
-	ExecutionID int `json:"executionId"`
-}
-
 // --- HTTP helpers ---
 
 func (c *N8nClient) do(method, path string, body interface{}) ([]byte, int, error) {
@@ -293,25 +289,6 @@ func (c *N8nClient) DeactivateWorkflow(id string) (*Workflow, error) {
 	}
 
 	var result Workflow
-	return &result, json.Unmarshal(data, &result)
-}
-
-func (c *N8nClient) ExecuteWorkflow(id string, dataJSON string) (*ExecuteResponse, error) {
-	var body interface{}
-	if dataJSON != "" {
-		var raw json.RawMessage
-		if err := json.Unmarshal([]byte(dataJSON), &raw); err != nil {
-			return nil, fmt.Errorf("invalid data JSON: %w", err)
-		}
-		body = raw
-	}
-
-	data, _, err := c.do("POST", "/workflows/"+id+"/run", body)
-	if err != nil {
-		return nil, err
-	}
-
-	var result ExecuteResponse
 	return &result, json.Unmarshal(data, &result)
 }
 
