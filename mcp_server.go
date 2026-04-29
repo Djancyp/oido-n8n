@@ -212,9 +212,9 @@ type GenerateAuditArgs struct {
 }
 
 type SearchNodesArgs struct {
-	Keyword string `json:"keyword"         jsonschema:"Search term matched against node name and display name (partial match)"`
-	Group   string `json:"group,omitempty" jsonschema:"Filter by group: t=trigger, i=action, o=output"`
-	Limit   int    `json:"limit,omitempty" jsonschema:"Max results (default: 20)"`
+	Keywords string `json:"keywords"       jsonschema:"Comma-separated search terms matched against node name and display name (partial match, OR logic)"`
+	Group    string `json:"group,omitempty" jsonschema:"Filter by group: t=trigger, i=action, o=output"`
+	Limit    int    `json:"limit,omitempty" jsonschema:"Max results (default: 20)"`
 }
 
 type GetNodeSchemaArgs struct {
@@ -845,15 +845,15 @@ func (h *MCPHandler) HandleGenerateAudit(_ context.Context, _ *mcp.CallToolReque
 // --- Node DB handlers ---
 
 func (h *MCPHandler) HandleSearchNodes(_ context.Context, _ *mcp.CallToolRequest, args SearchNodesArgs) (*mcp.CallToolResult, any, error) {
-	if args.Keyword == "" {
-		return errResult("keyword is required"), nil, nil
+	if args.Keywords == "" {
+		return errResult("keywords is required"), nil, nil
 	}
-	results, err := SearchNodes(h.nodeDB, args.Keyword, args.Group, args.Limit)
+	results, err := SearchNodes(h.nodeDB, args.Keywords, args.Group, args.Limit)
 	if err != nil {
 		return errResult(err.Error()), nil, nil
 	}
 	if len(results) == 0 {
-		return textResult("No node types found matching: " + args.Keyword), nil, nil
+		return textResult("No node types found matching: " + args.Keywords), nil, nil
 	}
 	type slim struct {
 		Name        string `json:"name"`
@@ -1122,7 +1122,7 @@ func RunMCPServer() {
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "n8n_search_nodes",
 		Description: "Search available n8n node types by keyword (partial match on name and display name). " +
-			"Always call this first to get the correct type string and version before building a workflow. " +
+			"Supports comma-separated keywords (OR logic) — query all needed node types in one call. " +
 			"Optional group filter: 't'=triggers, 'i'=actions, 'o'=outputs.",
 	}, handler.HandleSearchNodes)
 

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 
 	_ "modernc.org/sqlite"
 )
@@ -66,35 +67,41 @@ func InitNodeDB() (*sql.DB, func(), error) {
 	return db, cleanup, nil
 }
 
-// SearchNodes returns up to limit node types whose name or display_name contains keyword.
+// SearchNodes returns up to limit node types whose name or display_name contains any of the comma-separated keywords.
 // If group is non-empty, results are filtered to that group_name value (t=trigger, i=action, o=output).
-func SearchNodes(db *sql.DB, keyword, group string, limit int) ([]NodeType, error) {
+func SearchNodes(db *sql.DB, keywords, group string, limit int) ([]NodeType, error) {
 	if limit <= 0 {
 		limit = 20
 	}
-	pattern := "%" + keyword + "%"
 
-	var (
-		rows *sql.Rows
-		err  error
+	parts := strings.Split(keywords, ",")
+	var conditions []string
+	var args []interface{}
+	for _, kw := range parts {
+		kw = strings.TrimSpace(kw)
+		if kw == "" {
+			continue
+		}
+		pattern := "%" + kw + "%"
+		conditions = append(conditions, "(name LIKE ? OR display_name LIKE ?)")
+		args = append(args, pattern, pattern)
+	}
+	if len(conditions) == 0 {
+		return nil, nil
+	}
+
+	query := fmt.Sprintf(
+		`SELECT name, display_name, group_name, version FROM node_types WHERE %s`,
+		strings.Join(conditions, " OR "),
 	)
 	if group != "" {
-		rows, err = db.Query(
-			`SELECT name, display_name, group_name, version
-			 FROM node_types
-			 WHERE (name LIKE ? OR display_name LIKE ?) AND group_name = ?
-			 ORDER BY display_name LIMIT ?`,
-			pattern, pattern, group, limit,
-		)
-	} else {
-		rows, err = db.Query(
-			`SELECT name, display_name, group_name, version
-			 FROM node_types
-			 WHERE name LIKE ? OR display_name LIKE ?
-			 ORDER BY display_name LIMIT ?`,
-			pattern, pattern, limit,
-		)
+		query += " AND group_name = ?"
+		args = append(args, group)
 	}
+	query += " ORDER BY display_name LIMIT ?"
+	args = append(args, limit)
+
+	rows, err := db.Query(query, args...)
 	if err != nil {
 		return nil, err
 	}

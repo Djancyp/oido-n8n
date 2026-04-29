@@ -53,7 +53,7 @@ All other handler functions (`HandleListExecutions`, `HandleCreateCredential`, e
 
 ## Non-obvious facts for agents
 
-1. **Always `n8n_search_nodes` before creating/updating workflows.** The `n8n_create_workflow` and `n8n_validate_workflow` tools reject unknown node types by checking the embedded node DB. Don't guess node type names.
+1. **Always `n8n_search_nodes` before creating/updating workflows.** Use comma-separated keywords to query multiple node types in one call (e.g. `keywords="http, schedule, slack"`). The `n8n_create_workflow` and `n8n_validate_workflow` tools reject unknown node types by checking the embedded node DB.
 2. **Workflow connection keys use node `name`, not `id`.** This is a common gotcha when authoring workflow JSON.
 3. **`doWebhook` vs `do`:** Webhooks hit `<N8N_API_URL>/webhook/<path>` directly (no `/api/v1` prefix, no API key). All other calls go through `<N8N_API_URL>/api/v1` with `X-N8N-API-KEY`.
 4. **Plugin packaging:** `make dist` bundles `oido-extension.json`, `OIDO.md`, the binary, and contents of `commands/` and `skills/oido-n8n/`. If you add files to those dirs, rebuild dist.
