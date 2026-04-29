@@ -1143,21 +1143,8 @@ func RunMCPServer() {
 	}, handler.HandleSearchNodes)
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name: "n8n_create_workflow",
-		Description: `Create a new n8n workflow.
-
-BEFORE CALLING: use n8n_search_nodes to find correct type strings — never guess node type names.
-This tool validates the workflow internally and will REJECT it if node types are wrong or required fields are missing.
-
-Every node requires: id, name, type, typeVersion, position, parameters.
-Connection keys use node "name" (not "id").
-
-Minimal example:
-{
-  "name": "My Workflow",
-  "nodes": [{"id":"t1","name":"Schedule","type":"n8n-nodes-base.scheduleTrigger","typeVersion":1,"position":[240,300],"parameters":{}}],
-  "connections": {}
-}`,
+		Name:        "n8n_create_workflow",
+		Description: "Create a new n8n workflow from JSON definition. Validates node types and required fields internally.",
 	}, handler.HandleCreateWorkflow)
 
 	mcp.AddTool(server, &mcp.Tool{
