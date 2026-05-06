@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"os"
@@ -19,6 +20,7 @@ type N8nClient struct {
 }
 
 // NewN8nClient creates a client from environment variables.
+// If API key is missing, returns client without auth — tools return errors until configured.
 func NewN8nClient() (*N8nClient, error) {
 	apiURL := os.Getenv("N8N_API_URL")
 	if apiURL == "" {
@@ -27,7 +29,7 @@ func NewN8nClient() (*N8nClient, error) {
 
 	apiKey := os.Getenv("N8N_API_KEY")
 	if apiKey == "" {
-		return nil, fmt.Errorf("N8N_API_KEY environment variable is required")
+		log.Println("Warning: N8N_API_KEY not set. Tools will return errors until configured.")
 	}
 
 	return &N8nClient{
@@ -35,6 +37,13 @@ func NewN8nClient() (*N8nClient, error) {
 		apiKey:     apiKey,
 		httpClient: &http.Client{},
 	}, nil
+}
+
+func (c *N8nClient) checkConfigured() error {
+	if c.apiKey == "" {
+		return fmt.Errorf("n8n not configured: set N8N_API_KEY")
+	}
+	return nil
 }
 
 // --- Types ---
@@ -99,6 +108,10 @@ type ListResponse[T any] struct {
 // --- HTTP helpers ---
 
 func (c *N8nClient) do(method, path string, body interface{}) ([]byte, int, error) {
+	if err := c.checkConfigured(); err != nil {
+		return nil, 0, err
+	}
+
 	var reqBody io.Reader
 	if body != nil {
 		data, err := json.Marshal(body)
@@ -113,7 +126,9 @@ func (c *N8nClient) do(method, path string, body interface{}) ([]byte, int, erro
 		return nil, 0, fmt.Errorf("build request: %w", err)
 	}
 
-	req.Header.Set("X-N8N-API-KEY", c.apiKey)
+	if c.apiKey != "" {
+		req.Header.Set("X-N8N-API-KEY", c.apiKey)
+	}
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}

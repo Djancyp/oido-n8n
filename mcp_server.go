@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net/http"
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -1103,12 +1104,15 @@ func (h *MCPHandler) HandleValidateWorkflow(_ context.Context, _ *mcp.CallToolRe
 func RunMCPServer() {
 	n8nClient, err := NewN8nClient()
 	if err != nil {
-		log.Fatalf("Failed to create n8n client: %v", err)
+		log.Printf("Warning: n8n client init failed (tools will return errors): %v", err)
+		n8nClient = &N8nClient{httpClient: &http.Client{}}
 	}
 
 	nodeDB, dbCleanup, err := InitNodeDB()
 	if err != nil {
-		log.Fatalf("Failed to load node DB: %v", err)
+		log.Printf("Warning: node DB init failed (node validation disabled): %v", err)
+		nodeDB = nil
+		dbCleanup = func() {}
 	}
 	defer dbCleanup()
 
