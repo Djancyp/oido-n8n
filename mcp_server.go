@@ -222,6 +222,86 @@ type GetNodeSchemaArgs struct {
 	Name string `json:"name" jsonschema:"Exact node type name e.g. n8n-nodes-base.httpRequest"`
 }
 
+type ExecuteWorkflowArgs struct {
+	WorkflowID  string `json:"workflow_id"        jsonschema:"Workflow ID to execute"`
+	RunDataJSON string `json:"run_data,omitempty" jsonschema:"Optional input data as JSON object"`
+}
+
+type ArchiveWorkflowArgs struct {
+	ID string `json:"id" jsonschema:"Workflow ID"`
+}
+
+type TestCredentialArgs struct {
+	ID string `json:"id" jsonschema:"Credential ID to test"`
+}
+
+type ListDataTablesArgs struct {
+	Limit  int    `json:"limit,omitempty"  jsonschema:"Max results (default: 20)"`
+	Cursor string `json:"cursor,omitempty" jsonschema:"Pagination cursor"`
+}
+
+type DataTableIDArgs struct {
+	ID string `json:"id" jsonschema:"Data table ID"`
+}
+
+type CreateDataTableArgs struct {
+	Name        string `json:"name"                   jsonschema:"Table name"`
+	ColumnsJSON string `json:"columns_json,omitempty" jsonschema:"Optional JSON array of column objects with name and dataType fields"`
+}
+
+type UpdateDataTableArgs struct {
+	ID   string `json:"id"   jsonschema:"Data table ID"`
+	Name string `json:"name" jsonschema:"New table name"`
+}
+
+type ListRowsArgs struct {
+	TableID string `json:"table_id"         jsonschema:"Data table ID"`
+	Limit   int    `json:"limit,omitempty"  jsonschema:"Max results (default: 20)"`
+	Cursor  string `json:"cursor,omitempty" jsonschema:"Pagination cursor"`
+}
+
+type CreateRowArgs struct {
+	TableID     string `json:"table_id"  jsonschema:"Data table ID"`
+	RowDataJSON string `json:"row_data"  jsonschema:"Row data as JSON object with column names as keys"`
+}
+
+type UpdateRowsArgs struct {
+	TableID    string `json:"table_id"           jsonschema:"Data table ID"`
+	FilterJSON string `json:"filter,omitempty"   jsonschema:"Filter to select rows to update as JSON object"`
+	UpdateJSON string `json:"update"             jsonschema:"Fields to update as JSON object"`
+}
+
+type UpsertRowsArgs struct {
+	TableID  string `json:"table_id"  jsonschema:"Data table ID"`
+	RowsJSON string `json:"rows"      jsonschema:"Rows to upsert as JSON array of objects"`
+}
+
+type DeleteRowsArgs struct {
+	TableID    string `json:"table_id"         jsonschema:"Data table ID"`
+	FilterJSON string `json:"filter,omitempty" jsonschema:"Filter to select rows to delete as JSON object. Omit to delete all rows."`
+}
+
+type ListColumnsArgs struct {
+	TableID string `json:"table_id" jsonschema:"Data table ID"`
+}
+
+type CreateColumnArgs struct {
+	TableID  string `json:"table_id"           jsonschema:"Data table ID"`
+	Name     string `json:"name"               jsonschema:"Column name"`
+	DataType string `json:"data_type,omitempty" jsonschema:"Column data type (e.g. string, number, boolean, date)"`
+}
+
+type ColumnIDArgs struct {
+	TableID  string `json:"table_id"  jsonschema:"Data table ID"`
+	ColumnID string `json:"column_id" jsonschema:"Column ID"`
+}
+
+type UpdateColumnArgs struct {
+	TableID  string `json:"table_id"  jsonschema:"Data table ID"`
+	ColumnID string `json:"column_id" jsonschema:"Column ID"`
+	Name     string `json:"name"      jsonschema:"New column name"`
+}
+
 // --- Helpers ---
 
 func errResult(msg string) *mcp.CallToolResult {
@@ -1099,6 +1179,277 @@ func (h *MCPHandler) HandleValidateWorkflow(_ context.Context, _ *mcp.CallToolRe
 	return textResult(strings.Join(errs, "\n")), nil, nil
 }
 
+// --- Execute / archive handlers ---
+
+func (h *MCPHandler) HandleExecuteWorkflow(_ context.Context, _ *mcp.CallToolRequest, args ExecuteWorkflowArgs) (*mcp.CallToolResult, any, error) {
+	if args.WorkflowID == "" {
+		return errResult("workflow_id is required"), nil, nil
+	}
+	result, err := h.client.ExecuteWorkflow(args.WorkflowID, args.RunDataJSON)
+	if err != nil {
+		return errResult(err.Error()), nil, nil
+	}
+	pretty, _ := json.MarshalIndent(json.RawMessage(result), "", "  ")
+	return textResult(string(pretty)), nil, nil
+}
+
+func (h *MCPHandler) HandleArchiveWorkflow(_ context.Context, _ *mcp.CallToolRequest, args ArchiveWorkflowArgs) (*mcp.CallToolResult, any, error) {
+	if args.ID == "" {
+		return errResult("id is required"), nil, nil
+	}
+	w, err := h.client.ArchiveWorkflow(args.ID)
+	if err != nil {
+		return errResult(err.Error()), nil, nil
+	}
+	return textResult(fmt.Sprintf("Workflow %q (id=%s) archived.", w.Name, w.ID)), nil, nil
+}
+
+func (h *MCPHandler) HandleUnarchiveWorkflow(_ context.Context, _ *mcp.CallToolRequest, args ArchiveWorkflowArgs) (*mcp.CallToolResult, any, error) {
+	if args.ID == "" {
+		return errResult("id is required"), nil, nil
+	}
+	w, err := h.client.UnarchiveWorkflow(args.ID)
+	if err != nil {
+		return errResult(err.Error()), nil, nil
+	}
+	return textResult(fmt.Sprintf("Workflow %q (id=%s) unarchived.", w.Name, w.ID)), nil, nil
+}
+
+func (h *MCPHandler) HandleTestCredential(_ context.Context, _ *mcp.CallToolRequest, args TestCredentialArgs) (*mcp.CallToolResult, any, error) {
+	if args.ID == "" {
+		return errResult("id is required"), nil, nil
+	}
+	result, err := h.client.TestCredential(args.ID)
+	if err != nil {
+		return errResult(err.Error()), nil, nil
+	}
+	pretty, _ := json.MarshalIndent(json.RawMessage(result), "", "  ")
+	return textResult(string(pretty)), nil, nil
+}
+
+// --- DataTable handlers ---
+
+func (h *MCPHandler) HandleListDataTables(_ context.Context, _ *mcp.CallToolRequest, args ListDataTablesArgs) (*mcp.CallToolResult, any, error) {
+	result, err := h.client.ListDataTables(args.Limit, args.Cursor)
+	if err != nil {
+		return errResult(err.Error()), nil, nil
+	}
+	if len(result.Data) == 0 {
+		return textResult("No data tables found."), nil, nil
+	}
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("Data Tables (%d):\n\n", len(result.Data)))
+	sb.WriteString(fmt.Sprintf("%-24s  %s\n", "ID", "Name"))
+	sb.WriteString(strings.Repeat("-", 50) + "\n")
+	for _, t := range result.Data {
+		sb.WriteString(fmt.Sprintf("%-24s  %s\n", t.ID, t.Name))
+	}
+	if result.NextCursor != "" {
+		sb.WriteString(fmt.Sprintf("\nNext cursor: %s", result.NextCursor))
+	}
+	return textResult(sb.String()), nil, nil
+}
+
+func (h *MCPHandler) HandleCreateDataTable(_ context.Context, _ *mcp.CallToolRequest, args CreateDataTableArgs) (*mcp.CallToolResult, any, error) {
+	if args.Name == "" {
+		return errResult("name is required"), nil, nil
+	}
+	var cols []DataTableColumn
+	if args.ColumnsJSON != "" {
+		if err := json.Unmarshal([]byte(args.ColumnsJSON), &cols); err != nil {
+			return errResult("invalid columns_json: " + err.Error()), nil, nil
+		}
+	}
+	t, err := h.client.CreateDataTable(args.Name, cols)
+	if err != nil {
+		return errResult(err.Error()), nil, nil
+	}
+	return textResult(fmt.Sprintf("Data table created: id=%s name=%q", t.ID, t.Name)), nil, nil
+}
+
+func (h *MCPHandler) HandleGetDataTable(_ context.Context, _ *mcp.CallToolRequest, args DataTableIDArgs) (*mcp.CallToolResult, any, error) {
+	if args.ID == "" {
+		return errResult("id is required"), nil, nil
+	}
+	t, err := h.client.GetDataTable(args.ID)
+	if err != nil {
+		return errResult(err.Error()), nil, nil
+	}
+	return jsonResult(t), nil, nil
+}
+
+func (h *MCPHandler) HandleUpdateDataTable(_ context.Context, _ *mcp.CallToolRequest, args UpdateDataTableArgs) (*mcp.CallToolResult, any, error) {
+	if args.ID == "" {
+		return errResult("id is required"), nil, nil
+	}
+	if args.Name == "" {
+		return errResult("name is required"), nil, nil
+	}
+	t, err := h.client.UpdateDataTable(args.ID, args.Name)
+	if err != nil {
+		return errResult(err.Error()), nil, nil
+	}
+	return textResult(fmt.Sprintf("Data table updated: id=%s name=%q", t.ID, t.Name)), nil, nil
+}
+
+func (h *MCPHandler) HandleDeleteDataTable(_ context.Context, _ *mcp.CallToolRequest, args DataTableIDArgs) (*mcp.CallToolResult, any, error) {
+	if args.ID == "" {
+		return errResult("id is required"), nil, nil
+	}
+	if err := h.client.DeleteDataTable(args.ID); err != nil {
+		return errResult(err.Error()), nil, nil
+	}
+	return textResult(fmt.Sprintf("Data table %s deleted.", args.ID)), nil, nil
+}
+
+func (h *MCPHandler) HandleListRows(_ context.Context, _ *mcp.CallToolRequest, args ListRowsArgs) (*mcp.CallToolResult, any, error) {
+	if args.TableID == "" {
+		return errResult("table_id is required"), nil, nil
+	}
+	data, err := h.client.ListRows(args.TableID, args.Limit, args.Cursor)
+	if err != nil {
+		return errResult(err.Error()), nil, nil
+	}
+	pretty, _ := json.MarshalIndent(json.RawMessage(data), "", "  ")
+	return textResult(string(pretty)), nil, nil
+}
+
+func (h *MCPHandler) HandleCreateRow(_ context.Context, _ *mcp.CallToolRequest, args CreateRowArgs) (*mcp.CallToolResult, any, error) {
+	if args.TableID == "" {
+		return errResult("table_id is required"), nil, nil
+	}
+	if args.RowDataJSON == "" {
+		return errResult("row_data is required"), nil, nil
+	}
+	data, err := h.client.CreateRow(args.TableID, args.RowDataJSON)
+	if err != nil {
+		return errResult(err.Error()), nil, nil
+	}
+	pretty, _ := json.MarshalIndent(json.RawMessage(data), "", "  ")
+	return textResult(string(pretty)), nil, nil
+}
+
+func (h *MCPHandler) HandleUpdateRows(_ context.Context, _ *mcp.CallToolRequest, args UpdateRowsArgs) (*mcp.CallToolResult, any, error) {
+	if args.TableID == "" {
+		return errResult("table_id is required"), nil, nil
+	}
+	if args.UpdateJSON == "" {
+		return errResult("update is required"), nil, nil
+	}
+	data, err := h.client.UpdateRows(args.TableID, args.FilterJSON, args.UpdateJSON)
+	if err != nil {
+		return errResult(err.Error()), nil, nil
+	}
+	pretty, _ := json.MarshalIndent(json.RawMessage(data), "", "  ")
+	return textResult(string(pretty)), nil, nil
+}
+
+func (h *MCPHandler) HandleUpsertRows(_ context.Context, _ *mcp.CallToolRequest, args UpsertRowsArgs) (*mcp.CallToolResult, any, error) {
+	if args.TableID == "" {
+		return errResult("table_id is required"), nil, nil
+	}
+	if args.RowsJSON == "" {
+		return errResult("rows is required"), nil, nil
+	}
+	data, err := h.client.UpsertRows(args.TableID, args.RowsJSON)
+	if err != nil {
+		return errResult(err.Error()), nil, nil
+	}
+	pretty, _ := json.MarshalIndent(json.RawMessage(data), "", "  ")
+	return textResult(string(pretty)), nil, nil
+}
+
+func (h *MCPHandler) HandleDeleteRows(_ context.Context, _ *mcp.CallToolRequest, args DeleteRowsArgs) (*mcp.CallToolResult, any, error) {
+	if args.TableID == "" {
+		return errResult("table_id is required"), nil, nil
+	}
+	data, err := h.client.DeleteRows(args.TableID, args.FilterJSON)
+	if err != nil {
+		return errResult(err.Error()), nil, nil
+	}
+	pretty, _ := json.MarshalIndent(json.RawMessage(data), "", "  ")
+	return textResult(string(pretty)), nil, nil
+}
+
+func (h *MCPHandler) HandleListColumns(_ context.Context, _ *mcp.CallToolRequest, args ListColumnsArgs) (*mcp.CallToolResult, any, error) {
+	if args.TableID == "" {
+		return errResult("table_id is required"), nil, nil
+	}
+	cols, err := h.client.ListColumns(args.TableID)
+	if err != nil {
+		return errResult(err.Error()), nil, nil
+	}
+	if len(cols) == 0 {
+		return textResult("No columns found."), nil, nil
+	}
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("Columns (%d):\n\n", len(cols)))
+	sb.WriteString(fmt.Sprintf("%-24s  %-20s  %s\n", "ID", "Name", "DataType"))
+	sb.WriteString(strings.Repeat("-", 60) + "\n")
+	for _, c := range cols {
+		sb.WriteString(fmt.Sprintf("%-24s  %-20s  %s\n", c.ID, c.Name, c.DataType))
+	}
+	return textResult(sb.String()), nil, nil
+}
+
+func (h *MCPHandler) HandleCreateColumn(_ context.Context, _ *mcp.CallToolRequest, args CreateColumnArgs) (*mcp.CallToolResult, any, error) {
+	if args.TableID == "" {
+		return errResult("table_id is required"), nil, nil
+	}
+	if args.Name == "" {
+		return errResult("name is required"), nil, nil
+	}
+	col, err := h.client.CreateColumn(args.TableID, args.Name, args.DataType)
+	if err != nil {
+		return errResult(err.Error()), nil, nil
+	}
+	return textResult(fmt.Sprintf("Column created: id=%s name=%q type=%s", col.ID, col.Name, col.DataType)), nil, nil
+}
+
+func (h *MCPHandler) HandleGetColumn(_ context.Context, _ *mcp.CallToolRequest, args ColumnIDArgs) (*mcp.CallToolResult, any, error) {
+	if args.TableID == "" {
+		return errResult("table_id is required"), nil, nil
+	}
+	if args.ColumnID == "" {
+		return errResult("column_id is required"), nil, nil
+	}
+	col, err := h.client.GetColumn(args.TableID, args.ColumnID)
+	if err != nil {
+		return errResult(err.Error()), nil, nil
+	}
+	return textResult(fmt.Sprintf("id=%s name=%q type=%s", col.ID, col.Name, col.DataType)), nil, nil
+}
+
+func (h *MCPHandler) HandleUpdateColumn(_ context.Context, _ *mcp.CallToolRequest, args UpdateColumnArgs) (*mcp.CallToolResult, any, error) {
+	if args.TableID == "" {
+		return errResult("table_id is required"), nil, nil
+	}
+	if args.ColumnID == "" {
+		return errResult("column_id is required"), nil, nil
+	}
+	if args.Name == "" {
+		return errResult("name is required"), nil, nil
+	}
+	col, err := h.client.UpdateColumn(args.TableID, args.ColumnID, args.Name)
+	if err != nil {
+		return errResult(err.Error()), nil, nil
+	}
+	return textResult(fmt.Sprintf("Column updated: id=%s name=%q", col.ID, col.Name)), nil, nil
+}
+
+func (h *MCPHandler) HandleDeleteColumn(_ context.Context, _ *mcp.CallToolRequest, args ColumnIDArgs) (*mcp.CallToolResult, any, error) {
+	if args.TableID == "" {
+		return errResult("table_id is required"), nil, nil
+	}
+	if args.ColumnID == "" {
+		return errResult("column_id is required"), nil, nil
+	}
+	if err := h.client.DeleteColumn(args.TableID, args.ColumnID); err != nil {
+		return errResult(err.Error()), nil, nil
+	}
+	return textResult(fmt.Sprintf("Column %s deleted from table %s.", args.ColumnID, args.TableID)), nil, nil
+}
+
 // --- Server bootstrap ---
 
 func RunMCPServer() {
@@ -1123,72 +1474,286 @@ func RunMCPServer() {
 		Version: "1.0.0",
 	}, nil)
 
+	// --- Workflow tools ---
 	mcp.AddTool(server, &mcp.Tool{
-		Name: "n8n_search_nodes",
-		Description: "Search available n8n node types by keyword (partial match on name and display name). " +
-			"Supports comma-separated keywords (OR logic) — query all needed node types in one call. " +
-			"Optional group filter: 't'=triggers, 'i'=actions, 'o'=outputs.",
-	}, handler.HandleSearchNodes)
-
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "n8n_create_workflow",
-		Description: "Create a new n8n workflow from JSON definition. Validates node types and required fields internally.",
-	}, handler.HandleCreateWorkflow)
-
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "n8n_update_workflow",
-		Description: "Update an existing workflow by ID. Provide the full updated workflow JSON. Use n8n_search_nodes to verify node types before updating.",
-	}, handler.HandleUpdateWorkflow)
-
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "n8n_delete_workflow",
-		Description: "Permanently delete a workflow by ID. Irreversible.",
-	}, handler.HandleDeleteWorkflow)
-
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "n8n_validate_workflow",
-		Description: "Validate workflow JSON structure and check node types against the node registry.",
-	}, handler.HandleValidateWorkflow)
-
+		Name:        "n8n_list_workflows",
+		Description: "List workflows with ID, name, and active status. Filter by active=true/false, tag names, or name.",
+	}, handler.HandleListWorkflows)
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "n8n_get_workflow",
 		Description: "Get full workflow definition (nodes + connections) by ID.",
 	}, handler.HandleGetWorkflow)
-
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "n8n_list_workflows",
-		Description: "List all workflows with ID, name, and active status. Filter by active=true/false or tag names.",
-	}, handler.HandleListWorkflows)
+		Name:        "n8n_create_workflow",
+		Description: "Create a new n8n workflow from JSON definition. Validates node types and required fields internally.",
+	}, handler.HandleCreateWorkflow)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "n8n_update_workflow",
+		Description: "Replace a workflow by ID with a full updated JSON definition.",
+	}, handler.HandleUpdateWorkflow)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "n8n_patch_workflow",
+		Description: "Partially update a workflow: change name, nodes, connections, or settings without replacing the whole definition.",
+	}, handler.HandleUpdatePartialWorkflow)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "n8n_delete_workflow",
+		Description: "Permanently delete a workflow by ID. Irreversible.",
+	}, handler.HandleDeleteWorkflow)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "n8n_activate_workflow",
+		Description: "Activate a workflow (enable its triggers so it runs automatically).",
+	}, handler.HandleActivateWorkflow)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "n8n_deactivate_workflow",
+		Description: "Deactivate a workflow (pause its triggers).",
+	}, handler.HandleDeactivateWorkflow)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "n8n_execute_workflow",
+		Description: "Manually execute a workflow by ID. Optionally provide input run_data as JSON.",
+	}, handler.HandleExecuteWorkflow)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "n8n_archive_workflow",
+		Description: "Archive a workflow (hides it from the main list without deleting).",
+	}, handler.HandleArchiveWorkflow)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "n8n_unarchive_workflow",
+		Description: "Unarchive a previously archived workflow.",
+	}, handler.HandleUnarchiveWorkflow)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "n8n_validate_workflow",
+		Description: "Validate workflow JSON structure and check node types against the node registry.",
+	}, handler.HandleValidateWorkflow)
+	mcp.AddTool(server, &mcp.Tool{
+		Name: "n8n_search_nodes",
+		Description: "Search available n8n node types by keyword (partial match on name and display name). " +
+			"Supports comma-separated keywords (OR logic). Optional group filter: 't'=triggers, 'i'=actions, 'o'=outputs.",
+	}, handler.HandleSearchNodes)
 
+	// --- Execution tools ---
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "n8n_list_executions",
+		Description: "List workflow executions. Filter by workflow ID or status (waiting/running/success/error/canceled).",
+	}, handler.HandleListExecutions)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "n8n_get_execution",
+		Description: "Get execution details by ID. Set include_data=true to include node input/output data.",
+	}, handler.HandleGetExecution)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "n8n_delete_execution",
+		Description: "Delete an execution record by ID.",
+	}, handler.HandleDeleteExecution)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "n8n_stop_execution",
+		Description: "Stop a specific running execution by ID.",
+	}, handler.HandleStopExecution)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "n8n_stop_executions",
+		Description: "Stop all running executions, optionally filtered by workflow ID.",
+	}, handler.HandleStopExecutions)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "n8n_retry_execution",
+		Description: "Retry a failed execution by ID.",
+	}, handler.HandleRetryExecution)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "n8n_list_execution_tags",
+		Description: "List tags attached to an execution.",
+	}, handler.HandleListExecutionTags)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "n8n_update_execution_tags",
+		Description: "Replace all tags on an execution with a new set of tag IDs.",
+	}, handler.HandleUpdateExecutionTags)
+
+	// --- Credential tools ---
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "n8n_list_credentials",
-		Description: "List all credentials (secrets excluded). Filter by type or credential ID.",
+		Description: "List credentials (secrets excluded). Filter by type or credential ID.",
 	}, handler.HandleListCredentials)
-
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "n8n_get_credential",
-		Description: "Get credential by ID (secrets excluded).",
+		Description: "Get credential metadata by ID (secrets excluded).",
 	}, handler.HandleGetCredential)
-
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "n8n_create_credential",
-		Description: "Create a credential. Use n8n_get_credential_schema first to find required fields.",
+		Description: "Create a credential. Use n8n_get_credential_schema first to discover required fields.",
 	}, handler.HandleCreateCredential)
-
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "n8n_update_credential",
-		Description: "Update credential by ID (name, type, data).",
+		Description: "Update a credential by ID (name, type, data).",
 	}, handler.HandleUpdateCredential)
-
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "n8n_delete_credential",
 		Description: "Delete a credential by ID. Irreversible.",
 	}, handler.HandleDeleteCredential)
-
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "n8n_get_credential_schema",
 		Description: "Get required fields and schema for a credential type before creating one.",
 	}, handler.HandleGetCredentialSchema)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "n8n_test_credential",
+		Description: "Test whether a credential is valid and can connect to its service.",
+	}, handler.HandleTestCredential)
+
+	// --- Tag tools ---
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "n8n_list_tags",
+		Description: "List all workflow tags.",
+	}, handler.HandleListTags)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "n8n_create_tag",
+		Description: "Create a new workflow tag.",
+	}, handler.HandleCreateTag)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "n8n_get_tag",
+		Description: "Get a tag by ID.",
+	}, handler.HandleGetTag)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "n8n_update_tag",
+		Description: "Rename a tag by ID.",
+	}, handler.HandleUpdateTag)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "n8n_delete_tag",
+		Description: "Delete a tag and unlink it from all workflows.",
+	}, handler.HandleDeleteTag)
+
+	// --- Webhook tools ---
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "n8n_trigger_webhook",
+		Description: "Trigger a workflow via its webhook path. No API key needed — uses the n8n webhook endpoint directly.",
+	}, handler.HandleTriggerWebhook)
+
+	// --- Project tools ---
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "n8n_list_projects",
+		Description: "List n8n projects.",
+	}, handler.HandleListProjects)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "n8n_get_project",
+		Description: "Get a project by ID.",
+	}, handler.HandleGetProject)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "n8n_create_project",
+		Description: "Create a new project.",
+	}, handler.HandleCreateProject)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "n8n_update_project",
+		Description: "Rename a project by ID.",
+	}, handler.HandleUpdateProject)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "n8n_delete_project",
+		Description: "Delete a project by ID.",
+	}, handler.HandleDeleteProject)
+
+	// --- Variable tools ---
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "n8n_list_variables",
+		Description: "List n8n environment variables.",
+	}, handler.HandleListVariables)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "n8n_get_variable",
+		Description: "Get a variable by ID.",
+	}, handler.HandleGetVariable)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "n8n_create_variable",
+		Description: "Create a new environment variable.",
+	}, handler.HandleCreateVariable)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "n8n_update_variable",
+		Description: "Update a variable's key or value by ID.",
+	}, handler.HandleUpdateVariable)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "n8n_delete_variable",
+		Description: "Delete a variable by ID.",
+	}, handler.HandleDeleteVariable)
+
+	// --- User tools ---
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "n8n_list_users",
+		Description: "List n8n users. Set include_role=true to include global roles.",
+	}, handler.HandleListUsers)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "n8n_get_user",
+		Description: "Get a user by ID or email address.",
+	}, handler.HandleGetUser)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "n8n_create_users",
+		Description: "Invite users by providing a JSON array of user objects (email required, plus optional role, firstName, lastName).",
+	}, handler.HandleCreateUsers)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "n8n_change_user_role",
+		Description: "Change a user's global role (e.g. global:admin, global:member).",
+	}, handler.HandleChangeUserRole)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "n8n_delete_user",
+		Description: "Delete a user by ID.",
+	}, handler.HandleDeleteUser)
+
+	// --- Audit tool ---
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "n8n_generate_audit",
+		Description: "Generate a security audit report for the n8n instance. Optionally filter by categories (credentials, workflows, etc.).",
+	}, handler.HandleGenerateAudit)
+
+	// --- DataTable tools ---
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "n8n_list_data_tables",
+		Description: "List all data tables in the n8n instance.",
+	}, handler.HandleListDataTables)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "n8n_create_data_table",
+		Description: "Create a new data table with an optional set of columns.",
+	}, handler.HandleCreateDataTable)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "n8n_get_data_table",
+		Description: "Get data table metadata by ID.",
+	}, handler.HandleGetDataTable)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "n8n_update_data_table",
+		Description: "Rename a data table by ID.",
+	}, handler.HandleUpdateDataTable)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "n8n_delete_data_table",
+		Description: "Delete a data table and all its data. Irreversible.",
+	}, handler.HandleDeleteDataTable)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "n8n_list_rows",
+		Description: "List rows in a data table.",
+	}, handler.HandleListRows)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "n8n_create_row",
+		Description: "Insert a new row into a data table. Provide row_data as a JSON object with column names as keys.",
+	}, handler.HandleCreateRow)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "n8n_update_rows",
+		Description: "Update rows in a data table matching an optional filter. Provide update as a JSON object of fields to set.",
+	}, handler.HandleUpdateRows)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "n8n_upsert_rows",
+		Description: "Insert or update rows in a data table. Provide rows as a JSON array.",
+	}, handler.HandleUpsertRows)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "n8n_delete_rows",
+		Description: "Delete rows from a data table matching an optional filter. Omit filter to delete all rows.",
+	}, handler.HandleDeleteRows)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "n8n_list_columns",
+		Description: "List all columns in a data table.",
+	}, handler.HandleListColumns)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "n8n_create_column",
+		Description: "Add a column to a data table. Specify data_type (string, number, boolean, date).",
+	}, handler.HandleCreateColumn)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "n8n_get_column",
+		Description: "Get a data table column by ID.",
+	}, handler.HandleGetColumn)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "n8n_update_column",
+		Description: "Rename a column in a data table.",
+	}, handler.HandleUpdateColumn)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "n8n_delete_column",
+		Description: "Delete a column from a data table. Irreversible.",
+	}, handler.HandleDeleteColumn)
 
 	ctx := context.Background()
 	log.Println("Oido n8n MCP Server starting on stdio...")

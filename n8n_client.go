@@ -759,6 +759,231 @@ func (c *N8nClient) CreateTag(name string) (*Tag, error) {
 	return &result, json.Unmarshal(data, &result)
 }
 
+// --- Execute workflow ---
+
+func (c *N8nClient) ExecuteWorkflow(workflowID string, runDataJSON string) (json.RawMessage, error) {
+	body := map[string]interface{}{"workflowId": workflowID}
+	if runDataJSON != "" {
+		var rd json.RawMessage
+		if err := json.Unmarshal([]byte(runDataJSON), &rd); err != nil {
+			return nil, fmt.Errorf("invalid run_data JSON: %w", err)
+		}
+		body["runData"] = rd
+	}
+	data, _, err := c.do("POST", "/executions", body)
+	return data, err
+}
+
+// --- Archive / unarchive workflow ---
+
+func (c *N8nClient) ArchiveWorkflow(id string) (*Workflow, error) {
+	data, _, err := c.do("POST", "/workflows/"+id+"/archive", nil)
+	if err != nil {
+		return nil, err
+	}
+	var result Workflow
+	return &result, json.Unmarshal(data, &result)
+}
+
+func (c *N8nClient) UnarchiveWorkflow(id string) (*Workflow, error) {
+	data, _, err := c.do("POST", "/workflows/"+id+"/unarchive", nil)
+	if err != nil {
+		return nil, err
+	}
+	var result Workflow
+	return &result, json.Unmarshal(data, &result)
+}
+
+// --- Test credential ---
+
+func (c *N8nClient) TestCredential(id string) (json.RawMessage, error) {
+	data, _, err := c.do("POST", "/credentials/"+id+"/test", nil)
+	return data, err
+}
+
+// --- Data Tables ---
+
+type DataTable struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	CreatedAt string `json:"createdAt,omitempty"`
+	UpdatedAt string `json:"updatedAt,omitempty"`
+}
+
+type DataTableColumn struct {
+	ID       string `json:"id,omitempty"`
+	Name     string `json:"name"`
+	DataType string `json:"dataType,omitempty"`
+}
+
+func (c *N8nClient) ListDataTables(limit int, cursor string) (*ListResponse[DataTable], error) {
+	params := url.Values{}
+	if limit > 0 {
+		params.Set("limit", strconv.Itoa(limit))
+	}
+	if cursor != "" {
+		params.Set("cursor", cursor)
+	}
+	path := "/data-tables"
+	if len(params) > 0 {
+		path += "?" + params.Encode()
+	}
+	data, _, err := c.do("GET", path, nil)
+	if err != nil {
+		return nil, err
+	}
+	var result ListResponse[DataTable]
+	return &result, json.Unmarshal(data, &result)
+}
+
+func (c *N8nClient) CreateDataTable(name string, columns []DataTableColumn) (*DataTable, error) {
+	body := map[string]interface{}{"name": name}
+	if len(columns) > 0 {
+		body["columns"] = columns
+	}
+	data, _, err := c.do("POST", "/data-tables", body)
+	if err != nil {
+		return nil, err
+	}
+	var result DataTable
+	return &result, json.Unmarshal(data, &result)
+}
+
+func (c *N8nClient) GetDataTable(id string) (*DataTable, error) {
+	data, _, err := c.do("GET", "/data-tables/"+id, nil)
+	if err != nil {
+		return nil, err
+	}
+	var result DataTable
+	return &result, json.Unmarshal(data, &result)
+}
+
+func (c *N8nClient) UpdateDataTable(id, name string) (*DataTable, error) {
+	body := map[string]string{"name": name}
+	data, _, err := c.do("PUT", "/data-tables/"+id, body)
+	if err != nil {
+		return nil, err
+	}
+	var result DataTable
+	return &result, json.Unmarshal(data, &result)
+}
+
+func (c *N8nClient) DeleteDataTable(id string) error {
+	_, _, err := c.do("DELETE", "/data-tables/"+id, nil)
+	return err
+}
+
+func (c *N8nClient) ListRows(tableID string, limit int, cursor string) (json.RawMessage, error) {
+	params := url.Values{}
+	if limit > 0 {
+		params.Set("limit", strconv.Itoa(limit))
+	}
+	if cursor != "" {
+		params.Set("cursor", cursor)
+	}
+	path := "/data-tables/" + tableID + "/rows"
+	if len(params) > 0 {
+		path += "?" + params.Encode()
+	}
+	data, _, err := c.do("GET", path, nil)
+	return data, err
+}
+
+func (c *N8nClient) CreateRow(tableID string, rowDataJSON string) (json.RawMessage, error) {
+	var body json.RawMessage
+	if err := json.Unmarshal([]byte(rowDataJSON), &body); err != nil {
+		return nil, fmt.Errorf("invalid row_data JSON: %w", err)
+	}
+	data, _, err := c.do("POST", "/data-tables/"+tableID+"/rows", body)
+	return data, err
+}
+
+func (c *N8nClient) UpdateRows(tableID, filterJSON, updateJSON string) (json.RawMessage, error) {
+	body := map[string]json.RawMessage{}
+	if filterJSON != "" {
+		var f json.RawMessage
+		if err := json.Unmarshal([]byte(filterJSON), &f); err != nil {
+			return nil, fmt.Errorf("invalid filter JSON: %w", err)
+		}
+		body["filter"] = f
+	}
+	var u json.RawMessage
+	if err := json.Unmarshal([]byte(updateJSON), &u); err != nil {
+		return nil, fmt.Errorf("invalid update JSON: %w", err)
+	}
+	body["data"] = u
+	data, _, err := c.do("PATCH", "/data-tables/"+tableID+"/rows/update", body)
+	return data, err
+}
+
+func (c *N8nClient) UpsertRows(tableID, rowsJSON string) (json.RawMessage, error) {
+	var body json.RawMessage
+	if err := json.Unmarshal([]byte(rowsJSON), &body); err != nil {
+		return nil, fmt.Errorf("invalid rows JSON: %w", err)
+	}
+	data, _, err := c.do("POST", "/data-tables/"+tableID+"/rows/upsert", body)
+	return data, err
+}
+
+func (c *N8nClient) DeleteRows(tableID, filterJSON string) (json.RawMessage, error) {
+	var body interface{}
+	if filterJSON != "" {
+		var f json.RawMessage
+		if err := json.Unmarshal([]byte(filterJSON), &f); err != nil {
+			return nil, fmt.Errorf("invalid filter JSON: %w", err)
+		}
+		body = map[string]json.RawMessage{"filter": f}
+	}
+	data, _, err := c.do("DELETE", "/data-tables/"+tableID+"/rows/delete", body)
+	return data, err
+}
+
+func (c *N8nClient) ListColumns(tableID string) ([]DataTableColumn, error) {
+	data, _, err := c.do("GET", "/data-tables/"+tableID+"/columns", nil)
+	if err != nil {
+		return nil, err
+	}
+	var result []DataTableColumn
+	return result, json.Unmarshal(data, &result)
+}
+
+func (c *N8nClient) CreateColumn(tableID, name, dataType string) (*DataTableColumn, error) {
+	body := map[string]string{"name": name}
+	if dataType != "" {
+		body["dataType"] = dataType
+	}
+	data, _, err := c.do("POST", "/data-tables/"+tableID+"/columns", body)
+	if err != nil {
+		return nil, err
+	}
+	var result DataTableColumn
+	return &result, json.Unmarshal(data, &result)
+}
+
+func (c *N8nClient) GetColumn(tableID, columnID string) (*DataTableColumn, error) {
+	data, _, err := c.do("GET", "/data-tables/"+tableID+"/columns/"+columnID, nil)
+	if err != nil {
+		return nil, err
+	}
+	var result DataTableColumn
+	return &result, json.Unmarshal(data, &result)
+}
+
+func (c *N8nClient) UpdateColumn(tableID, columnID, name string) (*DataTableColumn, error) {
+	body := map[string]string{"name": name}
+	data, _, err := c.do("PUT", "/data-tables/"+tableID+"/columns/"+columnID, body)
+	if err != nil {
+		return nil, err
+	}
+	var result DataTableColumn
+	return &result, json.Unmarshal(data, &result)
+}
+
+func (c *N8nClient) DeleteColumn(tableID, columnID string) error {
+	_, _, err := c.do("DELETE", "/data-tables/"+tableID+"/columns/"+columnID, nil)
+	return err
+}
+
 // --- Webhooks ---
 
 func (c *N8nClient) TriggerWebhook(path, method, bodyJSON string) (string, int, error) {

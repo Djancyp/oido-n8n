@@ -1,119 +1,109 @@
-# Oido Gmail MCP Extension
+# oido-n8n
 
-Send, receive, search, and list emails via IMAP/SMTP using the Model Context Protocol.
+MCP plugin for n8n. Manage workflows, executions, credentials, tags, and webhooks directly from your AI assistant.
 
 ## Features
 
-- **List Emails**: View recent inbox messages
-- **Read Emails**: Fetch full email content by UID
-- **Send Emails**: Compose and send messages via SMTP
-- **Search Emails**: Filter inbox by subject keyword
+- **Workflow management** — list, create, update, delete, activate, deactivate, and execute workflows
+- **Execution monitoring** — list, inspect, stop, and delete execution records
+- **Credential management** — list, create, and delete credentials; inspect credential schemas
+- **Tags** — list and create tags for workflow organization
+- **Webhooks** — trigger webhook-based workflows without an API key
+- **Static binary** — no runtime dependencies, CGO disabled
 
 ## Installation
 
-### Option 1: Upload via Plugins UI (Recommended)
-
-1. Download the latest release zip for your platform from [GitHub Releases](../../releases)
-   - Linux: `oido-gmail-linux-amd64.zip`
-   - macOS (Apple Silicon): `oido-gmail-darwin-arm64.zip`
-2. Open Qwen CLI → Plugins UI
-3. Upload the zip file
-4. Configure settings (email, password, permissions) in the plugin settings panel
-
-### Option 2: Build from Source
-
-```bash
-git clone <repo-url>
-cd oido-gmail
-make build
-```
-
-Then point your plugin configuration to the built `oido-gmail-mcp` binary.
-
-### Option 3: Manual Install from Release Artifacts
-
-```bash
-# Download and extract
-curl -LO https://github.com/<owner>/<repo>/releases/latest/download/oido-gmail-linux-amd64.zip
-unzip oido-gmail-linux-amd64.zip -d oido-gmail
-
-# Run the MCP server
-./oido-gmail/oido-gmail-mcp
-```
-
-## Requirements
-
-- Go 1.26+
-- Gmail account with App Password enabled
-
-## Setup
-
-### 1. Generate Gmail App Password
-
-1. Go to your Google Account → Security
-2. Enable 2-Step Verification if not already enabled
-3. Go to App Passwords
-4. Generate a password for "Mail" → "Other (Custom name)" → enter "Oido Studio"
-5. Copy the 16-character password
-
-### 2. Configure Extension
-
-Set the following environment variables (or configure via plugin settings):
-
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `GMAIL_EMAIL` | Your Gmail address | *(required)* |
-| `GMAIL_PASSWORD` | Gmail App Password | *(required)* |
-| `GMAIL_IMAP_HOST` | IMAP server host | `imap.gmail.com` |
-| `GMAIL_IMAP_PORT` | IMAP server port | `993` |
-| `GMAIL_SMTP_HOST` | SMTP server host | `smtp.gmail.com` |
-| `GMAIL_SMTP_PORT` | SMTP server port | `587` |
-| `GMAIL_ALLOW_SEND` | Enable sending emails | `false` |
-| `GMAIL_ALLOW_RECEIVE` | Enable reading emails | `true` |
-
-## Build
-
 ```bash
 make build
 ```
 
-## Package for Distribution
+Then register `oido-n8n-mcp` as an MCP server or install via the Oido extension system.
 
-```bash
-make dist
-```
+## Configuration
 
-This creates `dist/oido-gmail.zip` for upload via the Plugins UI.
+| Variable | Required | Default | Description |
+|---|---|---|---|
+| `N8N_API_URL` | yes | `http://localhost:5678` | Base URL of your n8n instance |
+| `N8N_API_KEY` | yes | — | API key from n8n Settings → API → Create an API key |
 
 ## Tools
 
-### `list_emails`
-List recent emails from INBOX.
+### Workflows
 
-### `read_email`
-Read full email content by UID.
+| Tool | Description |
+|---|---|
+| `n8n_list_workflows` | List workflows, filter by active status, tags, or name |
+| `n8n_get_workflow` | Get full workflow definition (nodes + connections) |
+| `n8n_create_workflow` | Create a workflow from a JSON definition |
+| `n8n_update_workflow` | Update an existing workflow by ID |
+| `n8n_delete_workflow` | Delete a workflow |
+| `n8n_activate_workflow` | Activate a workflow (enable triggers) |
+| `n8n_deactivate_workflow` | Deactivate a workflow (pause triggers) |
+| `n8n_execute_workflow` | Manually run a workflow |
 
-### `send_email`
-Send an email (requires `GMAIL_ALLOW_SEND=true`).
+### Executions
 
-### `search_emails`
-Search emails by subject.
+| Tool | Description |
+|---|---|
+| `n8n_list_executions` | List executions, filter by workflow ID or status |
+| `n8n_get_execution` | Get execution details and node output data |
+| `n8n_delete_execution` | Delete an execution record |
+| `n8n_stop_execution` | Stop a running execution |
 
-## Architecture
+### Credentials
+
+| Tool | Description |
+|---|---|
+| `n8n_list_credentials` | List credential names and types |
+| `n8n_create_credential` | Create a new credential |
+| `n8n_delete_credential` | Delete a credential |
+| `n8n_get_credential_schema` | Get required fields for a credential type |
+
+### Tags
+
+| Tool | Description |
+|---|---|
+| `n8n_list_tags` | List all tags |
+| `n8n_create_tag` | Create a new tag |
+
+### Webhooks
+
+| Tool | Description |
+|---|---|
+| `n8n_trigger_webhook` | Trigger a workflow via webhook path (no API key needed) |
+
+## Usage Examples
 
 ```
-┌─────────────┐     stdio      ┌──────────────────┐
-│  Qwen CLI   │ ◄────────────► │  oido-gmail-mcp   │
-│             │                │                  │
-│             │                │  ┌────────────┐  │
-│             │                │  │ IMAP Client │  │──► Gmail IMAP
-│             │                │  └────────────┘  │
-│             │                │  ┌────────────┐  │
-│             │                │  │ SMTP Client │  │──► Gmail SMTP
-│             │                │  └────────────┘  │
-└─────────────┘                └──────────────────┘
+# List active workflows
+"Show me all active workflows"
+
+# Run a workflow
+"Execute workflow abc123"
+
+# Check failed executions
+"Show me recent failed executions"
+
+# Trigger a webhook
+"Trigger the daily-report webhook"
+
+# Inspect credentials
+"What credentials do I have configured?"
+
+# Create a tag
+"Create a tag called production"
 ```
 
-## License
+## Development
 
-MIT
+```bash
+make build   # build binary
+make dist    # build + zip for distribution
+make clean   # remove binary and dist/
+```
+
+## Tech Stack
+
+- Go 1.26+ with `CGO_ENABLED=0` (fully static)
+- [`modelcontextprotocol/go-sdk`](https://github.com/modelcontextprotocol/go-sdk) — MCP server
+- n8n REST API v1
