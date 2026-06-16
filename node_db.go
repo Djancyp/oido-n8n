@@ -2,6 +2,7 @@ package main
 
 import (
 	"database/sql"
+	"encoding/json"
 	_ "embed"
 	"fmt"
 	"os"
@@ -140,6 +141,71 @@ func toInt(v interface{}) int {
 		return 1
 	}
 	return 1
+}
+
+// NodeProperty is a single configurable parameter of a node, as stored in the
+// embedded DB. The DB only carries name/type/default — richer metadata
+// (required, options, descriptions) is not available in this build.
+type NodeProperty struct {
+	Name    string      `json:"name"`
+	Type    string      `json:"type"`
+	Default interface{} `json:"default,omitempty"`
+}
+
+// ParseProperties decodes the raw properties JSON column into a typed slice.
+// Returns nil on empty or malformed input rather than erroring — callers treat
+// missing param metadata as "unknown", not "invalid".
+func ParseProperties(raw string) []NodeProperty {
+	if strings.TrimSpace(raw) == "" {
+		return nil
+	}
+	var props []NodeProperty
+	if err := json.Unmarshal([]byte(raw), &props); err != nil {
+		return nil
+	}
+	return props
+}
+
+// NodeMeta is the lightweight lookup used by validation: it reports whether a
+// node type exists, its group, and whether the stored typeVersion is a usable
+// integer. ~21% of rows store version as "[object Object]" (a JS serialization
+// artifact); for those versionValid is false and version must not be trusted.
+type NodeMeta struct {
+	Found        bool
+	Group        string // t=trigger, i=action, o=output
+	Version      int
+	VersionValid bool
+}
+
+// LookupNode resolves metadata for a single node type by exact name.
+func LookupNode(db *sql.DB, name string) (NodeMeta, error) {
+	var groupName string
+	var versionRaw interface{}
+	err := db.QueryRow(
+		`SELECT group_name, version FROM node_types WHERE name = ?`, name,
+	).Scan(&groupName, &versionRaw)
+	if err == sql.ErrNoRows {
+		return NodeMeta{Found: false}, nil
+	}
+	if err != nil {
+		return NodeMeta{}, err
+	}
+	m := NodeMeta{Found: true, Group: groupName}
+	switch v := versionRaw.(type) {
+	case int64:
+		m.Version, m.VersionValid = int(v), true
+	case float64:
+		m.Version, m.VersionValid = int(v), true
+	case string:
+		if n, e := strconv.Atoi(v); e == nil {
+			m.Version, m.VersionValid = n, true
+		}
+	case []byte:
+		if n, e := strconv.Atoi(string(v)); e == nil {
+			m.Version, m.VersionValid = n, true
+		}
+	}
+	return m, nil
 }
 
 // GetNodeSchema returns the full record for a single node type by exact name.

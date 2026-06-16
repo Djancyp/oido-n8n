@@ -954,11 +954,35 @@ func (h *MCPHandler) HandleGetNodeSchema(_ context.Context, _ *mcp.CallToolReque
 	schema, err := GetNodeSchema(h.nodeDB, args.Name)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			return errResult("node type not found: " + args.Name), nil, nil
+			return errResult("node type not found: " + args.Name +
+				" — run n8n_search_nodes to find the correct type"), nil, nil
 		}
 		return errResult(err.Error()), nil, nil
 	}
-	return jsonResult(schema), nil, nil
+
+	// Flatten the raw properties JSON into a compact, agent-readable param list.
+	// The embedded DB only carries name/type/default per param — no required
+	// flags, option lists, or descriptions are available in this build.
+	out := struct {
+		Name        string         `json:"name"`
+		DisplayName string         `json:"display_name"`
+		Group       string         `json:"group"`
+		Version     int            `json:"version"`
+		Inputs      string         `json:"inputs"`
+		Outputs     string         `json:"outputs"`
+		Parameters  []NodeProperty `json:"parameters"`
+		Note        string         `json:"note"`
+	}{
+		Name:        schema.Name,
+		DisplayName: schema.DisplayName,
+		Group:       schema.GroupName,
+		Version:     schema.Version,
+		Inputs:      schema.Inputs,
+		Outputs:     schema.Outputs,
+		Parameters:  ParseProperties(schema.Properties),
+		Note:        "param metadata is name/type/default only; consult n8n docs for required fields and option values",
+	}
+	return jsonResult(out), nil, nil
 }
 
 // --- User handlers ---
@@ -1143,30 +1167,94 @@ func (h *MCPHandler) HandleValidateWorkflow(_ context.Context, _ *mcp.CallToolRe
 		}
 	}
 
-	// Validate node types exist in DB
-	if h.nodeDB != nil {
-		if nodesRaw, ok := wf["nodes"]; ok {
-			var nodes []map[string]json.RawMessage
-			if err := json.Unmarshal(nodesRaw, &nodes); err == nil {
-				for i, node := range nodes {
-					typeRaw, ok := node["type"]
-					if !ok {
-						continue
+	// Single DB-backed pass over nodes: collect node names (for connection
+	// integrity below), verify each type exists, check typeVersion, and track
+	// whether the workflow contains a trigger.
+	nodeNames := map[string]bool{}
+	hasTrigger := false
+	triggerCheckable := false
+	if nodesRaw, ok := wf["nodes"]; ok {
+		var nodes []map[string]json.RawMessage
+		if err := json.Unmarshal(nodesRaw, &nodes); err == nil {
+			for i, node := range nodes {
+				if nameRaw, ok := node["name"]; ok {
+					var nm string
+					if json.Unmarshal(nameRaw, &nm) == nil && nm != "" {
+						nodeNames[nm] = true
 					}
-					var nodeType string
-					if err := json.Unmarshal(typeRaw, &nodeType); err != nil || nodeType == "" {
-						continue
+				}
+
+				typeRaw, ok := node["type"]
+				if !ok {
+					continue
+				}
+				var nodeType string
+				if err := json.Unmarshal(typeRaw, &nodeType); err != nil || nodeType == "" {
+					continue
+				}
+				if h.nodeDB == nil {
+					continue
+				}
+				meta, err := LookupNode(h.nodeDB, nodeType)
+				if err != nil {
+					continue
+				}
+				if !meta.Found {
+					parts := strings.Split(nodeType, ".")
+					keyword := parts[len(parts)-1]
+					errs = append(errs, fmt.Sprintf(
+						"ERROR: nodes[%d] type %q not found in node registry — run n8n_search_nodes keyword=%q to find the correct type",
+						i, nodeType, keyword,
+					))
+					continue
+				}
+				triggerCheckable = true
+				if meta.Group == "t" {
+					hasTrigger = true
+				}
+				// typeVersion sanity — warn if the requested version is newer
+				// than the registry's latest. Skipped when the stored version is
+				// the "[object Object]" artifact (VersionValid == false).
+				if meta.VersionValid {
+					if tvRaw, ok := node["typeVersion"]; ok {
+						var tv float64
+						if json.Unmarshal(tvRaw, &tv) == nil && int(tv) > meta.Version {
+							errs = append(errs, fmt.Sprintf(
+								"WARN: nodes[%d] (%s) typeVersion %d is newer than the registry's latest (%d) — may be unsupported",
+								i, nodeType, int(tv), meta.Version,
+							))
+						}
 					}
-					var count int
-					_ = h.nodeDB.QueryRow(`SELECT COUNT(*) FROM node_types WHERE name = ?`, nodeType).Scan(&count)
-					if count == 0 {
-						// Derive a search keyword from the type string for a helpful suggestion
-						parts := strings.Split(nodeType, ".")
-						keyword := parts[len(parts)-1]
-						errs = append(errs, fmt.Sprintf(
-							"ERROR: nodes[%d] type %q not found in node registry — run n8n_search_nodes keyword=%q to find the correct type",
-							i, nodeType, keyword,
-						))
+				}
+			}
+		}
+	}
+
+	if triggerCheckable && !hasTrigger {
+		errs = append(errs, "WARN: no trigger node found (group 't') — workflow has no automatic start and can only be run manually")
+	}
+
+	// Connection integrity — n8n keys connections by node name, not id, so a
+	// stale or misspelled name silently breaks the wiring. Every source key and
+	// every target node must match a defined node name.
+	if connRaw, ok := wf["connections"]; ok && len(nodeNames) > 0 {
+		var conn map[string]map[string][][]struct {
+			Node string `json:"node"`
+		}
+		if err := json.Unmarshal(connRaw, &conn); err == nil {
+			for src, outputs := range conn {
+				if !nodeNames[src] {
+					errs = append(errs, fmt.Sprintf(
+						"ERROR: connections reference source node %q which is not defined in 'nodes'", src))
+				}
+				for _, branches := range outputs {
+					for _, targets := range branches {
+						for _, t := range targets {
+							if t.Node != "" && !nodeNames[t.Node] {
+								errs = append(errs, fmt.Sprintf(
+									"ERROR: connection target node %q (from %q) is not defined in 'nodes'", t.Node, src))
+							}
+						}
 					}
 				}
 			}
@@ -1520,14 +1608,21 @@ func RunMCPServer() {
 		Description: "Unarchive a previously archived workflow.",
 	}, handler.HandleUnarchiveWorkflow)
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "n8n_validate_workflow",
-		Description: "Validate workflow JSON structure and check node types against the node registry.",
+		Name: "n8n_validate_workflow",
+		Description: "Validate workflow JSON before creating: checks structure, duplicate ids, node types against the registry, " +
+			"connection integrity (targets must reference defined node names), typeVersion, and trigger presence.",
 	}, handler.HandleValidateWorkflow)
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "n8n_search_nodes",
 		Description: "Search available n8n node types by keyword (partial match on name and display name). " +
 			"Supports comma-separated keywords (OR logic). Optional group filter: 't'=triggers, 'i'=actions, 'o'=outputs.",
 	}, handler.HandleSearchNodes)
+	mcp.AddTool(server, &mcp.Tool{
+		Name: "n8n_get_node_schema",
+		Description: "Get the parameter schema for a node type by exact name (e.g. n8n-nodes-base.httpRequest). " +
+			"Returns inputs, outputs, version, and the list of parameters (name/type/default). " +
+			"Call after n8n_search_nodes and before authoring node JSON.",
+	}, handler.HandleGetNodeSchema)
 
 	// --- Execution tools ---
 	mcp.AddTool(server, &mcp.Tool{

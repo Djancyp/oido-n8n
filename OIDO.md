@@ -21,6 +21,13 @@ Set these in extension settings:
 | `n8n_activate_workflow` | Activate (enable triggers) |
 | `n8n_deactivate_workflow` | Deactivate (pause triggers) |
 | `n8n_execute_workflow` | Manually run a workflow |
+| `n8n_validate_workflow` | Validate JSON: structure, node types, connection integrity, trigger presence |
+
+### Node Knowledge
+| Tool | Description |
+|---|---|
+| `n8n_search_nodes` | Find node types by keyword (comma-separated OR; group filter t/i/o) |
+| `n8n_get_node_schema` | Get a node's parameters, inputs, outputs, and version |
 
 ### Executions
 | Tool | Description |

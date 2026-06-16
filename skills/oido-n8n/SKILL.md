@@ -9,6 +9,33 @@ Proven architectural patterns for building n8n workflows.
 
 ---
 
+## Authoring Loop (use these exact MCP tools)
+
+Always author workflows in this order. The tool names below are the ones this
+plugin actually exposes — do not invent others.
+
+1. **`n8n_search_nodes`** — find node types by keyword (comma-separated = OR).
+   Optional `group`: `t`=trigger, `i`=action, `o`=output. Returns `name` +
+   `display_name`.
+2. **`n8n_get_node_schema`** — for each node you'll use, get its parameters
+   (name/type/default), inputs, outputs, and version. Author params from this,
+   not from memory. (Param metadata is name/type/default only — it does **not**
+   list required fields or option values; consult n8n docs for those.)
+3. **Write the workflow JSON.** Two hard rules:
+   - **Connections are keyed by node `name`, never `id`.** A mismatched name
+     silently breaks wiring — `n8n_validate_workflow` now catches this.
+   - Every workflow needs a trigger node (group `t`) to run automatically.
+4. **`n8n_validate_workflow`** — run before creating. It checks structure,
+   duplicate ids, unknown node types, **connection integrity** (every source and
+   target must reference a defined node name), typeVersion, and trigger
+   presence. Fix every `ERROR`; `WARN` is advisory.
+5. **`n8n_create_workflow`** — only after validation passes.
+
+For existing workflows: `n8n_get_workflow` → edit → `n8n_validate_workflow` →
+`n8n_update_workflow`. Activate with `n8n_activate_workflow`.
+
+---
+
 ## The 6 Core Patterns
 
 Based on analysis of real workflow usage:
