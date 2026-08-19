@@ -1544,7 +1544,7 @@ func RunMCPServer() {
 	n8nClient, err := NewN8nClient()
 	if err != nil {
 		log.Printf("Warning: n8n client init failed (tools will return errors): %v", err)
-		n8nClient = &N8nClient{httpClient: &http.Client{}}
+		n8nClient = &N8nClient{httpClient: &http.Client{Timeout: requestTimeout}}
 	}
 
 	nodeDB, dbCleanup, err := InitNodeDB()

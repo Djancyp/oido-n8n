@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"strconv"
+	"time"
 )
 
 // N8nClient wraps the n8n REST API v1.
@@ -21,6 +22,11 @@ type N8nClient struct {
 
 // NewN8nClient creates a client from environment variables.
 // If API key is missing, returns client without auth — tools return errors until configured.
+// requestTimeout bounds every call. A zero-value http.Client has no timeout at
+// all, so a server that accepts the connection and never answers held the tool
+// (and the turn behind it) open indefinitely.
+const requestTimeout = 60 * time.Second
+
 func NewN8nClient() (*N8nClient, error) {
 	apiURL := os.Getenv("N8N_API_URL")
 	if apiURL == "" {
@@ -35,7 +41,7 @@ func NewN8nClient() (*N8nClient, error) {
 	return &N8nClient{
 		baseURL:    apiURL + "/api/v1",
 		apiKey:     apiKey,
-		httpClient: &http.Client{},
+		httpClient: &http.Client{Timeout: requestTimeout},
 	}, nil
 }
 
